@@ -1,24 +1,15 @@
 "use client";
 
-<<<<<<< HEAD
-import { useRef } from "react";
-import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench, Upload, Download, Pause, RotateCcw } from "lucide-react";
-=======
 import { useEffect, useRef, useState } from "react";
 import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
-import { Coins, FolderGit2, FolderPlus, Loader2, Play, Wrench, Zap } from "lucide-react";
->>>>>>> aniket
+import { Coins, FolderGit2, FolderPlus, Loader2, Play, Wrench, Upload, Download, Pause, RotateCcw, Zap } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
-<<<<<<< HEAD
   importError?: string | null;
-=======
   llmUsage?: LlmUsage | null;
->>>>>>> aniket
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -40,11 +31,8 @@ export default function MissionBar({
   mission,
   runStatus,
   isBusy,
-<<<<<<< HEAD
   importError,
-=======
   llmUsage,
->>>>>>> aniket
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
