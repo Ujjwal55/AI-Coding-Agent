@@ -42,7 +42,6 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
             or "No codebase context available."
         )
 
-    start_node("planner")
     llm = get_llm(model_name)
 
     system_prompt = """You are an expert software architect and implementation planner.
@@ -149,7 +148,6 @@ Reference actual files and structures from the codebase summary provided."""
         plan = _fallback_plan(f"LLM call failed — {str(e)[:80]}")
 
     skip_review = bool(state.get("skip_plan_review"))
-    end_node("planner")
     return {
         **understand_updates,
         "plan": plan,
@@ -211,10 +209,9 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     plan = state.get("plan", "No plan provided")
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
-    model_name = config.get("model", "gemini-3.1-flash-lite")
+    model_name = config.get("model", "gemini-2.5-flash")
 
     if not workspace_id:
-        end_node("executor")
         return {
             "executor_output": "No workspace uploaded. Cannot execute code changes.",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -224,7 +221,6 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
-        end_node("executor")
         return {
             "executor_output": f"Workspace {workspace_id} not found.",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -362,7 +358,6 @@ Please generate the code changes now."""
 
         code_changes_summary = "## Code Changes Made\n\n" + "\n".join(f"- {c}" for c in changes_made)
 
-        end_node("executor")
         return {
             "executor_output": llm_output,
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -373,7 +368,6 @@ Please generate the code changes now."""
 
     except Exception as e:
         logger.error(f"Executor LLM failed: {e}")
-        end_node("executor")
         return {
             "executor_output": f"Executor failed: {str(e)}",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -413,8 +407,6 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
     workspace_id = state.get("workspace_id")
     changes = state.get("code_changes_summary") or ""
     executor_output = state.get("executor_output") or ""
-
-    start_node("validator")
 
     # If the executor itself failed / wrote nothing, do not greenlight the run.
     failure_markers = (
@@ -486,14 +478,12 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
     config = state.get("_current_node_config", {})
     max_retries = int(config.get("maxRetries", 3))
     if state.get("current_attempt", 0) >= max_retries:
-        end_node("validator")
         return {
             "validation_status": "PASS",
             "confidence_score": 0.7,
             "feedback": "Max attempts reached. Passing with lower confidence.",
         }
 
-    end_node("validator")
     return {
         "validation_status": "PASS",
         "confidence_score": 0.9,

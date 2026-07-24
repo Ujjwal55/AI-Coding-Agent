@@ -125,7 +125,7 @@ export default function NodeInspector({
               hint="This node’s LLM only. Other agents keep their own model."
             >
               <select
-                value={String(selectedNode.data.model || "gemini-3.1-flash-lite")}
+                value={String(selectedNode.data.model || "gemini-2.5-flash")}
                 onChange={(e) =>
                   onUpdateData(selectedNode.id, "model", e.target.value)
                 }

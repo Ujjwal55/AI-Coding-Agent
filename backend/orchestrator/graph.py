@@ -58,6 +58,8 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             logger.info("Halting node execution due to global pause request.", extra={"node_id": node_id})
             raise NodeInterrupt("user_paused")
             
+        from utils.metadata_tracker import start_node, end_node
+        start_node(node_type)
         try:
             result = await base_func(state)
             if not isinstance(result, dict):
@@ -89,6 +91,8 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
                 "error": str(e)
             })
             raise e
+        finally:
+            end_node(node_type)
 
     return wrapper
 
