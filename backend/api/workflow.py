@@ -81,15 +81,12 @@ class RunRequest(BaseModel):
     objective: Optional[str] = None
     success_criteria: Optional[List[str]] = None
     max_plan_revisions: Optional[int] = None
+    repo_path: Optional[str] = None
 
 class ResumeRequest(BaseModel):
     state_updates: Optional[Dict[str, Any]] = None
     action: Optional[str] = None  # "approve_plan", "send_plan_feedback", "approve_code", "request_code_changes"
     feedback: Optional[str] = None
-
-class RunRequest(BaseModel):
-    objective: Optional[str] = None
-    repo_path: Optional[str] = None
 
 @router.post("/{version_id}/run", response_model=WorkflowRunRead)
 async def run_workflow(
@@ -112,13 +109,13 @@ async def run_workflow(
         "objective": (request.objective or "").strip() or "Build the feature",
         "repo_path": (request.repo_path or "").strip() or "target_repo",
         "current_attempt": 0,
-        "success_criteria": [],
+        "success_criteria": request.success_criteria or [],
         "messages": [],
     }
 
     # Delegate to runtime manager
     task = asyncio.create_task(
-        execute_workflow(version_id, db, str(run.id), initial_state=initial_state, workspace_id=workspace_id)
+        execute_workflow(version_id, db, str(run.id), initial_state=initial_state, workspace_id=request.workspace_id)
     )
     ACTIVE_RUN_TASKS[str(run.id)] = task
     try:
