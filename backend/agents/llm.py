@@ -1,6 +1,5 @@
 from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI as ChatGoogleGenAI
-from langchain_google_genai import ChatGoogleGenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.llms import LlamaCpp
 from huggingface_hub import hf_hub_download
 from langchain_core.runnables import RunnableLambda
@@ -67,7 +66,7 @@ def get_llm(model_name: str):
     model_name = model_name.lower()
     
     if "gemini" in model_name:
-        primary_llm = ChatGoogleGenAI(model=model_name)
+        primary_llm = ChatGoogleGenerativeAI(model=model_name)
     else:
         # Default/Fallback to Groq (free tier)
         fallback = model_name if ("llama" in model_name or "mixtral" in model_name or "gemma" in model_name) else "llama3-70b-8192"

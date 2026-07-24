@@ -56,4 +56,5 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
         run.state_json = {"error": str(e)}
         
     await db.commit()
+    await db.refresh(run)
     return run
