@@ -42,17 +42,28 @@ Backend env: `backend/.env` with `GOOGLE_API_KEY` and/or `GROQ_API_KEY` (compose
 
 **Default LLM:** `gemini-2.5-flash` (legacy `gemini-1.5-*` is remapped — those IDs 404 on current Google API keys).
 
-## Default graph (canvas)
+## Default graph (canvas) — simplified 8-node loop
 
 ```
-objective → criteria → code_understanding → planner → plan_review
-                                                              ├─ (feedback) → planner   [bounded]
-                                                              └─ (approve)  → executor → validator → decision
-                                                                                                      ├─ FAIL → planner / end
-                                                                                                      └─ PASS → human_gate (code review) → end / planner
+objective → criteria → planner → plan_review
+                                      ├─ (feedback) → planner   [bounded]
+                                      └─ (approve)  → executor → validator
+                                                                  ├─ FAIL → planner / end   [maxRetries]
+                                                                  └─ PASS → human_gate (code review)
+                                                                                      ├─ approve → Task Successful
+                                                                                      └─ changes → planner
 ```
+
+**Folded / internalized (not on the default canvas):**
+
+| Former node | Where it lives now |
+|---|---|
+| Code Understanding | Runs **inside Planner** when `code_summary` is missing |
+| Decision | Routing + `skip_plan_review` owned by **Validator** (`maxRetries` on Validator inspector). Legacy Decision node still compiles if present. |
 
 Interrupts: `interrupt_before = [plan_review, human_gate]`.
+
+Node library hides `code_understanding` and `decision` (still in registry for legacy graphs). Free-form extra nodes rarely help — routers resolve by **first node of each type**.
 
 ## How to keep this pack fresh
 

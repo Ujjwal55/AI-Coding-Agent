@@ -4,11 +4,36 @@ Append newest entries at the top. Keep bullets outcome-focused (“why”), with
 
 ---
 
+## 2026-07-25 — Simplified default loop + docs refresh
+
+### Product / loop
+- Default canvas reduced to **8 nodes**: drop explicit Code Understanding + Decision from the template graph.
+- End label: **Task Successful** (workspace-only; no GitHub merge story).
+- `ResultPanel` after completion: browse workspace files + download ZIP.
+- MissionBar: **Export / Import** workflow JSON (`utils/nodeConverter.ts`); empty workspace; LLM usage chip (tokens / estimated cost).
+
+### Backend
+- Planner **inlines** `code_understanding_node` when `code_summary` is missing (`orchestrator/nodes.py`).
+- Validator owns FAIL → retry tagging (`skip_plan_review`, `plan_feedback`) via `_validation_fail`; `maxRetries` read from Validator config.
+- Graph compiler: if no Decision node, attach `should_human_approve` conditional edges on **Validator** (`graph.py`).
+- `after_planner_route` keys off `plan_approved` (planner consumes `skip_plan_review` before routing).
+- LLM usage aggregated into `GraphState.llm_usage` (criteria / understanding / planner / executor).
+
+### Frontend
+- `nodeRegistry`: `maxRetries` on Validator; hide `code_understanding` + `decision` from Node Library.
+- `useWorkflowRun` completed-before lists match the slim graph.
+- HumanGatePanel still wired for `criteria_review`, but default graph does **not** interrupt before criteria.
+
+### Explicitly not shipped
+- Reusable **template gallery** / `is_template` column — prototyped then **reverted** (keep using Export JSON + Run-side DB versions only).
+
+---
+
 ## 2026-07-24 — Spec-driven loop + Gemini model fix (branch `ujjwal`)
 
 ### Product / loop
 - Spec-driven path: upload folder → objective → plan review HITL → execute in workspace → validate → code review HITL.
-- Canvas nodes: `code_understanding`, `plan_review` added; default graph updated.
+- Canvas nodes: `code_understanding`, `plan_review` added; default graph updated (later simplified — see 2026-07-25).
 - Bounded plan revisions (`plan_revision` / `max_plan_revisions`).
 - Decision always routes PASS → `human_gate` (code review); human gate can loop to planner.
 
@@ -54,9 +79,11 @@ Append newest entries at the top. Keep bullets outcome-focused (“why”), with
 
 ## Still open (hackathon gaps)
 
-- Persist + stream real `WorkflowEvent`s (replace mock event bus).
-- Workflow YAML/JSON export-import UI.
+- Persist real `WorkflowEvent`s (replace / complement mock event bus).
+- Richer validation “receipt” UI (checks exist; evidence is console/inspector-heavy).
+- Criteria edit HITL in the **default** interrupt path (panel exists).
 - Git rollback / green workspace on budget exhaustion.
 - Clarification gate for ambiguous requirements.
 - Optional real coding-agent harness (Aider / Claude Code / Codex) behind executor.
-- Cost / token / wall-clock receipts.
+- Named reusable **template gallery** (Export JSON covers save/share for now).
+- Git worktrees / per-attempt containers (today: per-run workspace dirs + Compose for the app).

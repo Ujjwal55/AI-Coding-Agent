@@ -22,14 +22,22 @@ Read this before debugging “why is my run weird?”
 7. **Empty `plan` string** used to pass the frontend `typeof plan === "string"` check and show “No plan content.” Planner now rejects empty and writes a fallback plan.
 8. **Executor failure used to still PASS validation** (syntax check on untouched tree) and land in code review with an error summary. Validator now fails on executor failure markers.
 9. **`pause_reason` must be inferred from `snapshot.next`**, not only from leftover state (stale `plan_review` after executor).
-10. **`WorkflowEvent` table is unused**; Run Console progress is largely client-projected / mock-seeded — not a full receipt trail yet.
+10. **`WorkflowEvent` table is unused**; Run Console progress is largely client-projected / mock-seeded — not a full receipt trail yet. SSE `/api/workflows/logs/stream` carries live backend logs separately.
 11. **Checkpointer is in-memory (`MemorySaver`).** Backend container restart loses pause/resume threads; DB `state_json` remains for inspection but cannot resume the LangGraph thread.
+12. **Validation retry + plan review.** Planner clears `skip_plan_review` in its return value. Routing must use `plan_approved` in `after_planner_route` (already fixed). Do not “fix” by only checking `skip_plan_review` after the planner node.
+13. **Canvas wiring is not free-form.** Conditional routers find the *first* node of each type. Extra / orphan / after-End nodes are ignored. Adding library nodes rarely creates a second agent path.
+14. **Criteria HumanGatePanel** can show for `criteria_review`, but default `interrupt_before` is only `[plan_review, human_gate]` — so criteria edit is usually skipped unless the graph is changed.
 
 ## Upload / workspaces
 
-12. Zip Slip must stay guarded in `api/upload.py` (`_safe_extract`).
-13. Workspaces persist under `backend/workspaces/` until manually cleaned; download via `GET /api/workspaces/{id}/download`.
+15. Zip Slip must stay guarded in `api/upload.py` (`_safe_extract`).
+16. Workspaces persist under `backend/workspaces/` until manually cleaned; download via `GET /api/workspaces/{id}/download`.
+
+## Templates / export
+
+17. **No DB template gallery.** A short-lived `is_template` migration/UI was reverted. Use MissionBar **Export / Import** JSON for reusable graphs. Run still creates ephemeral Workflow + Version rows named like “UI Generated Workflow”.
+18. If a local DB somehow has an `is_template` column from that attempt, it is unused; stamp Alembic to `001_initial` if upgrade complains about a missing `002` revision.
 
 ## React Flow
 
-14. Warning *“parent container needs a width and a height”* can appear during layout; usually cosmetic if the canvas eventually renders.
+19. Warning *“parent container needs a width and a height”* can appear during layout; usually cosmetic if the canvas eventually renders.
