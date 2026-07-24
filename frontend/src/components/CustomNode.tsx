@@ -43,25 +43,26 @@ const colorMap: Record<string, string> = {
 
 // Ring + accent applied on top of the base color to reflect live run status.
 const statusRing: Record<string, string> = {
-  running: 'ring-2 ring-amber-400 shadow-amber-100',
-  completed: 'ring-2 ring-emerald-400',
-  failed: 'ring-2 ring-red-400',
-  waiting: 'ring-2 ring-sky-400 animate-pulse',
+  in_progress: 'ring-2 ring-blue-500 border-blue-500 shadow-blue-100 animate-pulse bg-blue-50/90',
+  running: 'ring-2 ring-blue-500 border-blue-500 shadow-blue-100 animate-pulse bg-blue-50/90',
+  completed: 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/90',
+  failed: 'ring-2 ring-red-500 border-red-500 bg-red-50/90',
+  waiting: 'ring-2 ring-sky-400 border-sky-400 animate-pulse bg-sky-50/90',
   pending: '',
 };
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === 'running') {
-    return <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />;
+  if (status === 'running' || status === 'in_progress') {
+    return <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />;
   }
   if (status === 'completed') {
-    return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+    return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
   }
   if (status === 'failed') {
-    return <XCircle className="w-3.5 h-3.5 text-red-500" />;
+    return <XCircle className="w-3.5 h-3.5 text-red-600" />;
   }
   if (status === 'waiting') {
-    return <User className="w-3.5 h-3.5 text-sky-500" />;
+    return <User className="w-3.5 h-3.5 text-sky-600" />;
   }
   return null;
 }
@@ -80,7 +81,7 @@ export default function CustomNode({ data, isConnectable }: CustomNodeProps) {
 
   return (
     <div
-      className={`px-4 py-2 shadow-sm rounded-md border-2 ${colors} ${ring} min-w-[160px] transition-all`}
+      className={`px-4 py-2.5 shadow-sm rounded-md border-2 ${colors} ${ring} min-w-[160px] transition-all duration-200`}
     >
       <Handle
         type="target"

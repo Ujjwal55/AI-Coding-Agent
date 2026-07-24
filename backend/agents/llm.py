@@ -1,10 +1,13 @@
-from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.llms import LlamaCpp
-from huggingface_hub import hf_hub_download
+import os
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import BaseMessage, AIMessage
-import os
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from langchain_community.llms import LlamaCpp
+from huggingface_hub import hf_hub_download
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _local_llm_instance = None
 
