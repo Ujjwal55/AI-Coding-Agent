@@ -52,6 +52,8 @@ def build_dynamic_graph(graph_json: dict):
     def find_node_by_type(n_type):
         return next((n["id"] for n in nodes if n.get("data", {}).get("nodeType") == n_type), None)
     
+    processed_decision_nodes = set()
+    
     # 2. Add edges
     for edge in edges:
         source = edge["source"]
@@ -69,6 +71,10 @@ def build_dynamic_graph(graph_json: dict):
         source_type = source_node.get("data", {}).get("nodeType")
         
         if source_type == "decision":
+            if source in processed_decision_nodes:
+                continue
+            processed_decision_nodes.add(source)
+            
             # Wire up dynamic conditional edges for the decision node
             planner_id = find_node_by_type("planner")
             human_gate_id = find_node_by_type("human_gate")

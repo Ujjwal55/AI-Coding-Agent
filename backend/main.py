@@ -23,6 +23,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Workflow Orchestration Platform", lifespan=lifespan)
 
+import traceback
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print("GLOBAL EXCEPTION CAUGHT:")
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": str(exc), "traceback": traceback.format_exc()})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # For hackathon, open to all
