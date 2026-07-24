@@ -49,6 +49,46 @@ export default function WorkflowBuilder() {
     [setEdges],
   );
 
+  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
+
+  const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
+    event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, label }));
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+
+      const typeData = event.dataTransfer.getData('application/reactflow');
+      if (!typeData || !reactFlowInstance) return;
+
+      const { nodeType, label } = JSON.parse(typeData);
+      
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      
+      const newId = `${nodeType}-${new Date().getTime()}`;
+
+      const newNode = {
+        id: newId,
+        type: 'custom',
+        position,
+        data: { label, nodeType },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [reactFlowInstance, setNodes],
+  );
+
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const selectedNode = nodes.find(n => n.selected);
   
@@ -170,7 +210,12 @@ export default function WorkflowBuilder() {
         <h2 className="text-lg font-bold mb-4 text-slate-800">Node Library</h2>
         <div className="space-y-2">
           {['Objective', 'Criteria', 'Planner', 'Executor', 'Validator', 'Decision', 'Human Gate'].map((nodeName) => (
-             <div key={nodeName} className="p-3 bg-slate-100 rounded border border-slate-200 cursor-grab text-sm text-slate-700 font-medium hover:bg-slate-200 transition-colors">
+             <div 
+               key={nodeName} 
+               draggable
+               onDragStart={(e) => onDragStart(e, nodeName.toLowerCase().replace(' ', '_'), nodeName)}
+               className="p-3 bg-slate-100 rounded border border-slate-200 cursor-grab active:cursor-grabbing text-sm text-slate-700 font-medium hover:bg-slate-200 transition-colors"
+             >
                {nodeName}
              </div>
           ))}
@@ -202,6 +247,9 @@ export default function WorkflowBuilder() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onInit={setReactFlowInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
             fitView
             className="w-full h-full"
           >
