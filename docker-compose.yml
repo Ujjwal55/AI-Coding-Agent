@@ -57,7 +57,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Browser calls this URL (not Docker-internal). For remote EC2, either
+      # omit / leave localhost (frontend auto-uses window.location.hostname:8000)
+      # or set e.g. NEXT_PUBLIC_API_URL=http://3.95.134.135:8000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - WATCHPACK_POLLING=true
     volumes:
       - ./frontend:/app

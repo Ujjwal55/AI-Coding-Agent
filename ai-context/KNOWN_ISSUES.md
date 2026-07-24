@@ -16,6 +16,7 @@ Read this before debugging “why is my run weird?”
    Fix: `docker compose exec frontend npm install` **or** rebuild with `--renew-anon-volumes`.  
    Historical jszip errors may still appear **above** newer “Ready” lines in the same compose log scrollback.
 6. Backend hot-reload watches `/app`; **env_file changes need recreate** (`docker compose up -d --force-recreate backend`).
+6b. **EC2 / remote UI calling `localhost:8000`.** The browser runs on the *user* machine, so `NEXT_PUBLIC_API_URL=http://localhost:8000` hits the laptop, not EC2 (often looks like a CORS error). Frontend now auto-uses `http(s)://{page-host}:8000` when the page is not on localhost. Ensure security group opens **8000** as well as 3000. CORS uses `allow_origins=*` with `allow_credentials=False` (wildcard + credentials is rejected by browsers).
 
 ## Orchestration semantics
 
