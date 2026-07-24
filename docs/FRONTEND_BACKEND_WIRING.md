@@ -9,10 +9,11 @@ UI is built as a **microservice-ready modular monolith** (ports & adapters). Do 
 
 | Layer | Location | Owns | Must not own |
 |---|---|---|---|
-| Presentation L1 | `frontend/src/components/mission/` | Mission UI only | `fetch`, mock seeds |
+| Presentation L1 | `frontend/src/components/mission/` | Ask, Select repo, Import/Export, Run | `fetch`, mock seeds |
 | Presentation L2 | `frontend/src/components/workflow/` | Canvas / library / inspector UI | Run orchestration |
 | Presentation L3 | `frontend/src/components/control/` | Console / timeline / gate UI | HTTP URLs |
-| Application | `frontend/src/application/` | Prepare / Run / Resume / projections / `nodeRegistry` | JSX layout |
+| Application | `frontend/src/application/` | Run / Resume / projections / `nodeRegistry` | JSX layout |
+| Utils | `frontend/src/utils/nodeConverter.ts` | Import/Export node ↔ JSON | HTTP |
 | Ports | `frontend/src/ports/` | Interfaces only | Implementations |
 | Adapters | `frontend/src/adapters/` | HTTP + mock I/O | React components |
 | Domain | `frontend/src/domain/types.ts` | Shared FE contracts | UI |
@@ -28,100 +29,72 @@ UI is built as a **microservice-ready modular monolith** (ports & adapters). Do 
 |---|---|---|---|---|
 | `WorkflowApiPort.createWorkflow` | `HttpWorkflowAdapter` | `POST /api/workflows/` | `backend/api/workflow.py` | Insert `Workflow` row |
 | `WorkflowApiPort.saveVersion` | `HttpWorkflowAdapter` | `POST /api/workflows/{id}/versions` | `backend/api/workflow.py`, `backend/models/workflow.py` | Persist React Flow `graph_json` as `WorkflowVersion` |
-| `WorkflowApiPort.run` | `HttpWorkflowAdapter` | `POST /api/workflows/{version_id}/run` | `backend/api/workflow.py`, `backend/orchestrator/runtime.py`, `backend/orchestrator/graph.py` | Build LangGraph from JSON, `ainvoke`, checkpoint |
-| `WorkflowApiPort.resume` | `HttpWorkflowAdapter` | `POST /api/workflows/{run_id}/resume` | `backend/api/workflow.py`, `backend/orchestrator/runtime.py` | Resume from `MemorySaver` with `state_updates` |
-| `RunEventsPort.*` | `MockRunEventsAdapter` | **Local only** (no HTTP yet) | `backend/models/workflow.py` (`WorkflowEvent`), unused | Future: write/stream events during node execution |
-| Prepare (local) | `usePrepareMission` | No API | Future: `GraphState.objective` in `backend/orchestrator/state.py` | Syncs mission text into Objective node data |
-| Executor `data.command` | Via `graph_json` on saveVersion | Carried in node config | `backend/orchestrator/nodes.py` | Shell command in `target_repo/` |
-| Decision routing | Graph edges + node type | Compiled at run | `backend/agents/decision.py`, `backend/orchestrator/graph.py` | Conditional edges / retries |
-| Criteria agent | Pause before planner | Returned in `state_json` | `backend/agents/success_criteria.py`, interrupt in `graph.py` | HITL criteria edit |
+| `WorkflowApiPort.run` | `HttpWorkflowAdapter` | `POST /api/workflows/{version_id}/run` body `{ objective, repo_path }` | `backend/api/workflow.py` `RunRequest`, `runtime.py`, `graph.py` | Build LangGraph; seed `GraphState.objective` + `repo_path` |
+| `WorkflowApiPort.resume` | `HttpWorkflowAdapter` | `POST /api/workflows/{run_id}/resume` | `backend/api/workflow.py`, `runtime.py` | Resume with `state_updates` |
+| `RunEventsPort.*` | `MockRunEventsAdapter` | Local only | `WorkflowEvent` unused | Future SSE stream |
+| Import/Export | `nodeConverter.ts` | Local file only | N/A | Interchange `{ version: 1, nodes, edges }` |
+| Executor `data.command` | Via `graph_json` | Node config | `nodes.py` | Shell in allowlisted cwd |
+| Select repo | Mission state → Run body | `repo_path` | `nodes.resolve_repo_cwd` | cwd under `WORKSPACE_ROOT` / `backend/` |
 
-Base URL: `process.env.NEXT_PUBLIC_API_URL` || `http://localhost:8000`  
-(`HttpWorkflowAdapter`)
+Base URL: `process.env.NEXT_PUBLIC_API_URL` || `http://localhost:8000`
 
 ---
 
 ## 3. UI component → wiring
 
-| UI piece | User action | Calls today | Future connection |
-|---|---|---|---|
-| `MissionBar` Prepare | Validate + sync objective | `usePrepareMission` → local nodes + `RunEventsPort.append(prepared)` | POST RunIntent / mission prepare endpoint |
-| `MissionBar` Attach / Select repo | Local chips | Mission state in `page.tsx` | Workspace service: upload + repo mount for Executor cwd |
-| `MissionBar` Run | Start orchestrator | `useWorkflowRun.startRun` → `WorkflowApiPort` + `RunEventsPort.seedDemoRun` | Same API, plus kick off real event stream |
-| `NodeLibrary` / `WorkflowCanvas` | Edit topology | React Flow state | Still `graph_json` on version save |
-| `NodeInspector` Config | Edit model/prompt/command | Node `data` fields | Already consumed by dynamic compiler / executor |
-| `NodeInspector` Execution | Read-only | `projectNodeExecution(events)` | Same projection fed by real `WorkflowEvent` stream |
-| `RunConsole` | Observe logs | `projectConsoleLines(events)` | SSE/poll `GET /api/workflows/runs/{id}/events` |
-| `RunTimeline` | Observe steps | `projectTimeline(events)` | Same events; include attempt ids for retries |
-| `HumanGatePanel` Approve | Resume paused run | `WorkflowApiPort.resume` with `success_criteria` | Also `human_approved` for human_gate interrupt |
-| `HumanGatePanel` / Cancel | Local cancel | `cancelLocal` + `eventsPort.reset` | Need real cancel/interrupt API |
-| `CustomNode` status badge | Visual | `projectNodeStatuses(events)` → `data.status` | Same |
+| UI piece | User action | Calls today |
+|---|---|---|
+| `MissionBar` Ask | Set objective | Mission state; required for Run |
+| `MissionBar` Select repo | Set `repoPath` (default `target_repo`) | Sent on Run as `repo_path` |
+| `MissionBar` Import / Export | Load/save workflow JSON | `parseWorkflowFile` / `downloadWorkflowFile` |
+| `MissionBar` Run | Start orchestrator | `startRun` → save version + `run({ objective, repoPath })`; syncs objective into Objective node |
+| Canvas (no Import) | Default template | `initialNodes` / `initialEdges` in `page.tsx` become `graph_json` |
+| `HumanGatePanel` Approve | Resume | `resume` with `success_criteria` |
+
+**Removed:** Attach file, Prepare.
 
 ---
 
 ## 4. Working today vs gaps
 
 ### Working
-- Create workflow → save version (`graph_json`) → run → pause → resume criteria
-- Dynamic graph compile (`NODE_MAP` in `backend/orchestrator/graph.py`)
-- L1/L2/L3 shell always visible (inspector + console not XOR)
-- Mock events drive console, timeline, node colors
+- Default canvas graph or Import → `graph_json`
+- Ask prompt → `GraphState.objective` on Run
+- Select repo → allowlisted Executor cwd (`repo_path`)
+- Import/Export via `nodeConverter`
+- Create → version → run → pause → resume
 
-### Gaps (backend + thin FE adapter swap)
-1. **Event stream** — `WorkflowEvent` model exists; nothing writes or serves it. Add writers in runtime/nodes + `GET` or SSE endpoint. FE: new `SseRunEventsAdapter` implementing `RunEventsPort`.
-2. **RunIntent** — objective / repo / attachments not sent on run. Extend run request body → `GraphState`.
-3. **Async run** — `ainvoke` blocks HTTP; live mid-run UI needs background job + events.
-4. **Cancel** — UI-only today.
-5. **Repo / attachments** — mock strings; Executor still uses fixed `target_repo/`.
-6. **Human gate approve flag** — criteria resume works; explicit `human_approved` for approval node still thin.
+### Gaps
+1. Event stream (SSE) still mock on FE
+2. Async non-blocking runs
+3. Real cancel API
+4. Repo browser / clone-from-URL
+5. Human gate `human_approved` still thin
 
 ---
 
 ## 5. Event schema (align FE ↔ BE)
 
-Backend (`WorkflowEvent` / `WorkflowEventRead`):
-
-```text
-id, run_id, event_type, node_id, payload, created_at
-event_type: node_started | node_completed | error | approval_requested
-```
-
-Frontend (`UiEvent` in `domain/types.ts`):
-
-```text
-id, runId, eventType, nodeId, message, payload, createdAt
-eventType also allows: prepared | run_started | run_completed | run_cancelled
-```
-
-When implementing SSE, map snake_case API → camelCase `UiEvent` inside the adapter (keep domain types stable).
+Backend: `node_started | node_completed | error | approval_requested`  
+Frontend also: `run_started | run_completed | run_cancelled`
 
 ---
 
-## 6. Swap mock events → real (no UI rewrite)
+## 6. Swap mock events → real
 
-1. Implement `SseRunEventsAdapter` (or `PollingRunEventsAdapter`) in `frontend/src/adapters/http/` satisfying `RunEventsPort`.
-2. In `page.tsx` composition root only:
-
-```ts
-// const eventsPort = new MockRunEventsAdapter();
-const eventsPort = new SseRunEventsAdapter();
-```
-
-3. Keep `projectRunView.ts` and all L3 components unchanged.
+Replace `MockRunEventsAdapter` in `page.tsx` with an SSE adapter implementing `RunEventsPort`. Leave L1/L2/L3 unchanged.
 
 ---
 
 ## 7. Future microservice seams (docs only)
 
-| Future service | Owns | Today’s code to extract later |
+| Future service | Owns | Today |
 |---|---|---|
-| Workspace / Mission | objective, files, repo | Mission state + Prepare; new BE module |
-| Workflow Definition | graph CRUD / versions | `api/workflow.py` version routes, `models/workflow.py` |
-| Orchestrator | compile + run graph | `orchestrator/graph.py`, `runtime.py`, agents |
-| Events | stream node lifecycle | `WorkflowEvent` + new stream API |
-| HITL / Control | approvals, cancel | resume + future approval queue |
-
-FE already mirrors these as folders/ports so the UI does not need a rewrite when services split.
+| Workspace | objective, repo | Mission bar + RunRequest |
+| Workflow Definition | graph CRUD | versions + Import/Export |
+| Orchestrator | compile + run | `graph.py`, `runtime.py` |
+| Events | stream | `WorkflowEvent` |
+| HITL | approvals | resume |
 
 ---
 
@@ -129,25 +102,23 @@ FE already mirrors these as folders/ports so the UI does not need a rewrite when
 
 ```text
 frontend/src/
+  utils/nodeConverter.ts
   domain/types.ts
   ports/WorkflowApiPort.ts
   ports/RunEventsPort.ts
   adapters/http/HttpWorkflowAdapter.ts
   adapters/mock/MockRunEventsAdapter.ts
-  application/usePrepareMission.ts
   application/useWorkflowRun.ts
   application/projectRunView.ts
   application/nodeRegistry.ts
   components/mission/MissionBar.tsx
-  components/workflow/{NodeLibrary,WorkflowCanvas,NodeInspector}.tsx
-  components/control/{RunConsole,RunTimeline,HumanGatePanel}.tsx
-  components/CustomNode.tsx
-  app/page.tsx                    # composition root
+  components/workflow/...
+  components/control/...
+  app/page.tsx
 
 backend/
-  api/workflow.py
-  models/workflow.py              # WorkflowEvent unused for streaming
-  schemas/workflow.py             # WorkflowEventRead ready
-  orchestrator/{graph,runtime,nodes,state}.py
-  agents/{success_criteria,decision}.py
+  api/workflow.py          # RunRequest: objective, repo_path
+  orchestrator/state.py    # repo_path on GraphState
+  orchestrator/runtime.py  # initial_state from API
+  orchestrator/nodes.py    # resolve_repo_cwd allowlist
 ```

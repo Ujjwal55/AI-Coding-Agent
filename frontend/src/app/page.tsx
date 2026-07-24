@@ -12,7 +12,6 @@ import {
 } from "@xyflow/react";
 import { HttpWorkflowAdapter } from "@/adapters/http/HttpWorkflowAdapter";
 import { MockRunEventsAdapter } from "@/adapters/mock/MockRunEventsAdapter";
-import { usePrepareMission } from "@/application/usePrepareMission";
 import { useWorkflowRun } from "@/application/useWorkflowRun";
 import {
   projectConsoleLines,
@@ -30,6 +29,11 @@ import RunTimeline from "@/components/control/RunTimeline";
 import PlanReviewPanel from "@/components/control/PlanReviewPanel";
 import CodeReviewPanel from "@/components/control/CodeReviewPanel";
 import ResultPanel from "@/components/control/ResultPanel";
+import HumanGatePanel from "@/components/control/HumanGatePanel";
+import {
+  downloadWorkflowFile,
+  parseWorkflowFile,
+} from "@/utils/nodeConverter";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -136,6 +140,7 @@ export default function ControlPlanePage() {
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [events, setEvents] = useState<UiEvent[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [mission, setMission] = useState<MissionState>({
     objective: "",
     repoPath: null,
@@ -146,7 +151,6 @@ export default function ControlPlanePage() {
     uploading: false,
   });
 
-  const { prepare } = usePrepareMission(eventsPort);
   const {
     runStatus,
     pauseReason,
@@ -458,9 +462,33 @@ export default function ControlPlanePage() {
     }
   };
 
+  const handleExport = () => {
+    downloadWorkflowFile(nodes, edges);
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseWorkflowFile(text);
+      setNodes(parsed.nodes);
+      setEdges(parsed.edges);
+      setImportError(null);
+      eventsPort.append({
+        runId: null,
+        eventType: "run_started",
+        nodeId: null,
+        message: `Imported workflow from ${file.name} (${parsed.nodes.length} nodes)`,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to import workflow file";
+      setImportError(message);
+    }
+  };
+
   const handleRun = async () => {
-    if (!mission.prepared) {
-      alert("Prepare the mission before Run.");
+    if (!mission.objective.trim()) {
+      alert("Enter an objective before Run.");
       return;
     }
     await startRun(nodes, edges, {
@@ -507,8 +535,9 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
+        importError={importError}
         onObjectiveChange={(value) =>
-          setMission((m) => ({ ...m, objective: value, prepared: false }))
+          setMission((m) => ({ ...m, objective: value }))
         }
         onUploadFolder={handleUploadFolder}
         onEmptyWorkspace={handleEmptyWorkspace}

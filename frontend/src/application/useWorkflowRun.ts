@@ -215,7 +215,7 @@ export function useWorkflowRun({
           nodeId: null,
           message,
         });
-        return null;
+        return { run: null, nodes: syncedNodes };
       } finally {
         setIsBusy(false);
       }

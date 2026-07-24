@@ -8,6 +8,7 @@ interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
+  importError?: string | null;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -25,6 +26,7 @@ export default function MissionBar({
   mission,
   runStatus,
   isBusy,
+  importError,
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
@@ -97,12 +99,20 @@ export default function MissionBar({
 
         <button
           type="button"
-          onClick={onPrepare}
-          disabled={isBusy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          <Wrench className="h-4 w-4" />
-          Prepare
+          <Upload className="h-4 w-4" />
+          Import
+        </button>
+
+        <button
+          type="button"
+          onClick={onExport}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Download className="h-4 w-4" />
+          Export
         </button>
 
         <button
@@ -114,6 +124,18 @@ export default function MissionBar({
           <Play className="h-4 w-4" />
           Run
         </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) onImportFile(file);
+          }}
+        />
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -137,6 +159,10 @@ export default function MissionBar({
         />
         <Chip active={runStatus !== "idle"} label={`run: ${runStatus}`} />
       </div>
+
+      {importError && (
+        <p className="mt-2 text-xs text-red-600">{importError}</p>
+      )}
     </header>
   );
 }
