@@ -3,8 +3,11 @@ import json
 import os
 import sys
 import inspect
+import asyncio
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
+
+_subscribers: Set[asyncio.Queue] = set()
 
 
 class JSONFormatter(logging.Formatter):
@@ -41,10 +44,37 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_record)
 
 
+class BroadcastHandler(logging.Handler):
+    """Logging Handler that broadcasts formatted JSON log records to all active SSE queues."""
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            msg = self.format(record)
+            for queue in list(_subscribers):
+                try:
+                    queue.put_nowait(msg)
+                except Exception:
+                    pass
+        except Exception:
+            self.handleError(record)
+
+
+async def subscribe_logs() -> asyncio.Queue:
+    """Subscribes an SSE connection to receive live log JSON events."""
+    queue = asyncio.Queue()
+    _subscribers.add(queue)
+    return queue
+
+
+async def unsubscribe_logs(queue: asyncio.Queue):
+    """Unsubscribes an SSE connection from live log events."""
+    _subscribers.discard(queue)
+
+
 def get_logger(name: Optional[str] = None, log_dir: Optional[str] = None) -> logging.Logger:
     """
     Creates and returns a configured logger instance that logs JSON formatted messages
-    to both console (stdout) and a log file named after the module under the logs folder.
+    to console (stdout), log file, and active SSE web subscribers.
     """
     # Derive module filename
     if not name or name == "__main__":
@@ -87,6 +117,12 @@ def get_logger(name: Optional[str] = None, log_dir: Optional[str] = None) -> log
     file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
+
+    # 3. SSE Broadcast Handler
+    broadcast_handler = BroadcastHandler()
+    broadcast_handler.setLevel(level)
+    broadcast_handler.setFormatter(formatter)
+    logger.addHandler(broadcast_handler)
 
     # Do not propagate to root logger to avoid double logging
     logger.propagate = False
