@@ -51,10 +51,12 @@ export function usePrepareMission(eventsPort: RunEventsPort) {
         runId: null,
         eventType: "prepared",
         nodeId: "objective",
-        message: `Mission prepared: ${objective}`,
+        message: mission.workspaceId
+          ? `Mission prepared: ${objective}`
+          : `Mission prepared (no repo uploaded): ${objective}`,
         payload: {
-          repoPath: mission.repoPath,
-          attachments: mission.attachments,
+          workspaceId: mission.workspaceId,
+          fileCount: mission.fileTree.filter((f) => !f.is_dir).length,
         },
       });
 

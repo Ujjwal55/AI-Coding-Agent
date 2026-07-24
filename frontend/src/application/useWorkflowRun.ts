@@ -1,14 +1,57 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Edge, Node } from "@xyflow/react";
-import type { RunStatus, WorkflowRunRecord } from "@/domain/types";
+import type {
+  PauseReason,
+  RunStatus,
+  WorkflowRunRecord,
+} from "@/domain/types";
 import type { RunEventsPort } from "@/ports/RunEventsPort";
-import type { WorkflowApiPort } from "@/ports/WorkflowApiPort";
+import type {
+  ResumeOptions,
+  RunOptions,
+  WorkflowApiPort,
+} from "@/ports/WorkflowApiPort";
 
 interface UseWorkflowRunOptions {
   workflowApi: WorkflowApiPort;
   eventsPort: RunEventsPort;
+}
+
+/** Node types considered "done" once the run pauses at a given gate. */
+const COMPLETED_BEFORE: Record<string, string[]> = {
+  plan_review: ["objective", "criteria", "code_understanding", "planner"],
+  code_review: [
+    "objective",
+    "criteria",
+    "code_understanding",
+    "planner",
+    "plan_review",
+    "executor",
+    "validator",
+    "decision",
+  ],
+};
+
+const WAITING_NODE: Record<string, string> = {
+  plan_review: "plan_review",
+  code_review: "human_gate",
+};
+
+function idsByTypes(nodes: Node[], types: string[]): Node[] {
+  const order = new Map(types.map((t, i) => [t, i]));
+  return nodes
+    .filter((n) => order.has(String(n.data?.nodeType)))
+    .sort(
+      (a, b) =>
+        (order.get(String(a.data?.nodeType)) ?? 0) -
+        (order.get(String(b.data?.nodeType)) ?? 0),
+    );
+}
+
+function firstNodeOfType(nodes: Node[], type: string): Node | undefined {
+  return nodes.find((n) => String(n.data?.nodeType) === type);
 }
 
 export function useWorkflowRun({
@@ -17,58 +60,147 @@ export function useWorkflowRun({
 }: UseWorkflowRunOptions) {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [pausedRunId, setPausedRunId] = useState<string | null>(null);
-  const [editingCriteria, setEditingCriteria] = useState("");
+  const [pauseReason, setPauseReason] = useState<PauseReason>(null);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const [planRevision, setPlanRevision] = useState<number>(0);
+  const [codeChangesSummary, setCodeChangesSummary] = useState<string | null>(
+    null,
+  );
+  const [successCriteria, setSuccessCriteria] = useState<string[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
-  const applyRunResult = useCallback(
-    (runData: WorkflowRunRecord, nodeIds: string[]) => {
-      if (runData.status === "paused") {
-        setRunStatus("paused");
-        setPausedRunId(runData.id);
-        const criteriaList = (runData.state_json?.success_criteria as
-          | string[]
-          | undefined) || [];
-        setEditingCriteria(criteriaList.join("\n"));
-        eventsPort.append({
-          runId: runData.id,
-          eventType: "approval_requested",
-          nodeId: "criteria",
-          message: "Criteria change requested. Please review and approve to continue.",
-          payload: { success_criteria: criteriaList },
-        });
-        return;
-      }
+  // Remember the canvas nodes for the active run so we can project statuses.
+  const nodesRef = useRef<Node[]>([]);
 
-      setPausedRunId(null);
-      setRunStatus(runData.status === "failed" ? "failed" : "completed");
-      eventsPort.append({
-        runId: runData.id,
-        eventType: runData.status === "failed" ? "error" : "run_completed",
-        nodeId: nodeIds[nodeIds.length - 1] ?? null,
-        message: `Run finished with status: ${runData.status}`,
+  const emitProgress = useCallback(
+    (runId: string, reason: PauseReason) => {
+      const nodes = nodesRef.current;
+      const key = reason ?? "";
+      const completedTypes = COMPLETED_BEFORE[key] ?? [];
+      idsByTypes(nodes, completedTypes).forEach((node) => {
+        eventsPort.append({
+          runId,
+          eventType: "node_completed",
+          nodeId: node.id,
+          message: `${String(node.data?.label || node.id)} completed`,
+        });
+      });
+      const waitingType = WAITING_NODE[key];
+      if (waitingType) {
+        const waitingNode = firstNodeOfType(nodes, waitingType);
+        if (waitingNode) {
+          eventsPort.append({
+            runId,
+            eventType: "approval_requested",
+            nodeId: waitingNode.id,
+            message:
+              reason === "plan_review"
+                ? "Plan ready — awaiting your review."
+                : "Code changes ready — awaiting your review.",
+          });
+        }
+      }
+    },
+    [eventsPort],
+  );
+
+  const emitAllCompleted = useCallback(
+    (runId: string) => {
+      nodesRef.current.forEach((node) => {
+        eventsPort.append({
+          runId,
+          eventType: "node_completed",
+          nodeId: node.id,
+          message: `${String(node.data?.label || node.id)} completed`,
+        });
       });
     },
     [eventsPort],
   );
 
+  const applyRunResult = useCallback(
+    (runData: WorkflowRunRecord) => {
+      const state = (runData.state_json ?? {}) as Record<string, unknown>;
+      const plan = typeof state.plan === "string" ? state.plan : null;
+      const summary =
+        typeof state.code_changes_summary === "string"
+          ? state.code_changes_summary
+          : null;
+      const criteria = Array.isArray(state.success_criteria)
+        ? (state.success_criteria as string[])
+        : [];
+      const revision =
+        typeof state.plan_revision === "number" ? state.plan_revision : 0;
+
+      setCurrentPlan(plan);
+      setCodeChangesSummary(summary);
+      setSuccessCriteria(criteria);
+      setPlanRevision(revision);
+
+      if (runData.status === "paused") {
+        const reason = (state.pause_reason as PauseReason) ?? "plan_review";
+        setRunStatus("paused");
+        setPausedRunId(runData.id);
+        setPauseReason(reason);
+        emitProgress(runData.id, reason);
+        return;
+      }
+
+      // Terminal states
+      setPausedRunId(null);
+      setPauseReason(null);
+      if (runData.status === "failed") {
+        setRunStatus("failed");
+        eventsPort.append({
+          runId: runData.id,
+          eventType: "error",
+          nodeId: null,
+          message:
+            typeof state.error === "string"
+              ? `Run failed: ${state.error}`
+              : "Run failed.",
+        });
+      } else {
+        setRunStatus("completed");
+        emitAllCompleted(runData.id);
+        const feedback =
+          typeof state.feedback === "string" ? ` (${state.feedback})` : "";
+        eventsPort.append({
+          runId: runData.id,
+          eventType: "run_completed",
+          nodeId: null,
+          message: `Task successful${feedback}.`,
+        });
+      }
+    },
+    [emitProgress, emitAllCompleted, eventsPort],
+  );
+
   const startRun = useCallback(
-    async (nodes: Node[], edges: Edge[]) => {
+    async (nodes: Node[], edges: Edge[], options?: RunOptions) => {
       setIsBusy(true);
       setLastError(null);
       setRunStatus("running");
-      const nodeIds = nodes.map((n) => n.id);
+      setCurrentPlan(null);
+      setCodeChangesSummary(null);
+      nodesRef.current = nodes;
+      eventsPort.reset();
 
       try {
+        eventsPort.append({
+          runId: null,
+          eventType: "run_started",
+          nodeId: null,
+          message: `Run started: ${options?.objective ?? "(objective)"}`,
+        });
         const wf = await workflowApi.createWorkflow({
           name: "UI Generated Workflow",
-          description: "Created from canvas",
+          description: options?.objective ?? "Created from canvas",
         });
         const version = await workflowApi.saveVersion(wf.id, { nodes, edges });
-        eventsPort.seedDemoRun(version.id, nodeIds);
-        const runData = await workflowApi.run(version.id);
-        console.log("LangGraph Execution Result:", runData);
-        applyRunResult(runData, nodeIds);
+        const runData = await workflowApi.run(version.id, options);
+        applyRunResult(runData);
         return runData;
       } catch (error) {
         const message =
@@ -91,17 +223,15 @@ export function useWorkflowRun({
     [workflowApi, eventsPort, applyRunResult],
   );
 
-  const resumeRun = useCallback(
-    async (stateUpdates?: Record<string, unknown>) => {
+  const resume = useCallback(
+    async (options: ResumeOptions) => {
       if (!pausedRunId) return null;
       setIsBusy(true);
       setLastError(null);
       setRunStatus("running");
-
       try {
-        const runData = await workflowApi.resume(pausedRunId, stateUpdates);
-        console.log("Resumed LangGraph Result:", runData);
-        applyRunResult(runData, []);
+        const runData = await workflowApi.resume(pausedRunId, options);
+        applyRunResult(runData);
         return runData;
       } catch (error) {
         const message =
@@ -122,6 +252,23 @@ export function useWorkflowRun({
     [pausedRunId, workflowApi, eventsPort, applyRunResult],
   );
 
+  const approvePlan = useCallback(
+    () => resume({ action: "approve_plan" }),
+    [resume],
+  );
+  const sendPlanFeedback = useCallback(
+    (feedback: string) => resume({ action: "send_plan_feedback", feedback }),
+    [resume],
+  );
+  const approveCode = useCallback(
+    () => resume({ action: "approve_code" }),
+    [resume],
+  );
+  const requestCodeChanges = useCallback(
+    (feedback: string) => resume({ action: "request_code_changes", feedback }),
+    [resume],
+  );
+
   const cancelLocal = useCallback(() => {
     eventsPort.append({
       runId: pausedRunId,
@@ -130,7 +277,7 @@ export function useWorkflowRun({
       message: "Run cancelled locally (no backend cancel yet)",
     });
     setPausedRunId(null);
-    setEditingCriteria("");
+    setPauseReason(null);
     setRunStatus("idle");
     setLastError(null);
   }, [eventsPort, pausedRunId]);
@@ -141,13 +288,19 @@ export function useWorkflowRun({
   return {
     runStatus,
     pausedRunId,
-    editingCriteria,
-    setEditingCriteria,
+    pauseReason,
+    currentPlan,
+    planRevision,
+    codeChangesSummary,
+    successCriteria,
     lastError,
     isBusy,
     isGraphLocked,
     startRun,
-    resumeRun,
+    approvePlan,
+    sendPlanFeedback,
+    approveCode,
+    requestCodeChanges,
     cancelLocal,
   };
 }

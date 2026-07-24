@@ -24,13 +24,25 @@ export const NODE_REGISTRY: NodeTypeDefinition[] = [
     type: "criteria",
     label: "Criteria",
     libraryLabel: "Criteria",
-    configFields: ["label"],
+    configFields: ["label", "model", "instructions"],
+  },
+  {
+    type: "code_understanding",
+    label: "Code Understanding",
+    libraryLabel: "Code Understanding",
+    configFields: ["label", "model"],
   },
   {
     type: "planner",
     label: "Planner",
     libraryLabel: "Planner",
     configFields: ["label", "model", "instructions", "maxRetries"],
+  },
+  {
+    type: "plan_review",
+    label: "Plan Review",
+    libraryLabel: "Plan Review",
+    configFields: ["label"],
   },
   {
     type: "executor",
