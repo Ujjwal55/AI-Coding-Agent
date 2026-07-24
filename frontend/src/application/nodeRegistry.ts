@@ -3,7 +3,7 @@ export type InspectorField =
   | "model"
   | "instructions"
   | "maxRetries"
-  | "command";
+  | "maxPlanRevisions";
 
 export interface NodeTypeDefinition {
   type: string;
@@ -12,7 +12,15 @@ export interface NodeTypeDefinition {
   configFields: InspectorField[];
 }
 
-/** Open/Closed registry: add a node type here instead of editing every panel. */
+/**
+ * Open/Closed registry: only fields the backend actually reads.
+ * - model / instructions → LLM agent nodes (criteria, planner, executor)
+ * - maxRetries → Validator (validation retry budget; Decision is optional/legacy)
+ * - maxPlanRevisions → Plan Review (replan budget)
+ *
+ * Code Understanding is folded into Planner by default; Decision routing is
+ * owned by Validator. Both remain in the registry for legacy graphs.
+ */
 export const NODE_REGISTRY: NodeTypeDefinition[] = [
   {
     type: "objective",
@@ -36,31 +44,31 @@ export const NODE_REGISTRY: NodeTypeDefinition[] = [
     type: "planner",
     label: "Planner",
     libraryLabel: "Planner",
-    configFields: ["label", "model", "instructions", "maxRetries"],
+    configFields: ["label", "model", "instructions"],
   },
   {
     type: "plan_review",
     label: "Plan Review",
     libraryLabel: "Plan Review",
-    configFields: ["label"],
+    configFields: ["label", "maxPlanRevisions"],
   },
   {
     type: "executor",
     label: "Executor",
     libraryLabel: "Executor",
-    configFields: ["label", "model", "instructions", "maxRetries", "command"],
+    configFields: ["label", "model", "instructions"],
   },
   {
     type: "validator",
     label: "Validator",
     libraryLabel: "Validator",
-    configFields: ["label", "model", "instructions", "maxRetries"],
+    configFields: ["label", "maxRetries"],
   },
   {
     type: "decision",
     label: "Decision",
     libraryLabel: "Decision",
-    configFields: ["label"],
+    configFields: ["label", "maxRetries"],
   },
   {
     type: "human_gate",
@@ -76,8 +84,11 @@ export const NODE_REGISTRY: NodeTypeDefinition[] = [
   },
 ];
 
+/** Default palette — hide internals that the simplified loop folds away. */
+const HIDDEN_FROM_LIBRARY = new Set(["end", "code_understanding", "decision"]);
+
 export const LIBRARY_NODE_TYPES = NODE_REGISTRY.filter(
-  (n) => n.type !== "end",
+  (n) => !HIDDEN_FROM_LIBRARY.has(n.type),
 );
 
 export function getNodeTypeDefinition(

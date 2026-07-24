@@ -41,13 +41,19 @@ async def execute_workflow(
         
         config = {"configurable": {"thread_id": run_id}}
         
-        # Build default initial state
-        state = initial_state or {
+        state = {
             "objective": "Build the feature",
+            "repo_path": "target_repo",
             "current_attempt": 0,
             "success_criteria": [],
-            "messages": []
+            "messages": [],
         }
+        if initial_state:
+            state.update({k: v for k, v in initial_state.items() if v is not None})
+        if not state.get("repo_path"):
+            state["repo_path"] = "target_repo"
+        if not state.get("objective"):
+            state["objective"] = "Build the feature"
         
         # Determine if we are resuming or starting fresh
         snapshot = compiled_graph.get_state(config)

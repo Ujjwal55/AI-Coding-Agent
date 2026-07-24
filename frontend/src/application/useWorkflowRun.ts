@@ -21,20 +21,20 @@ interface UseWorkflowRunOptions {
 
 /** Node types considered "done" once the run pauses at a given gate. */
 const COMPLETED_BEFORE: Record<string, string[]> = {
-  plan_review: ["objective", "criteria", "code_understanding", "planner"],
+  criteria_review: ["objective"],
+  plan_review: ["objective", "criteria", "planner"],
   code_review: [
     "objective",
     "criteria",
-    "code_understanding",
     "planner",
     "plan_review",
     "executor",
     "validator",
-    "decision",
   ],
 };
 
 const WAITING_NODE: Record<string, string> = {
+  criteria_review: "criteria",
   plan_review: "plan_review",
   code_review: "human_gate",
 };
@@ -97,7 +97,9 @@ export function useWorkflowRun({
             message:
               reason === "plan_review"
                 ? "Plan ready — awaiting your review."
-                : "Code changes ready — awaiting your review.",
+                : reason === "criteria_review"
+                  ? "Criteria review — awaiting your approval."
+                  : "Code changes ready — awaiting your review.",
           });
         }
       }
@@ -268,6 +270,21 @@ export function useWorkflowRun({
     (feedback: string) => resume({ action: "request_code_changes", feedback }),
     [resume],
   );
+  const approveCriteria = useCallback(
+    (criteriaText: string) => {
+      const lines = criteriaText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return resume({
+        stateUpdates: {
+          success_criteria: lines,
+          pause_reason: null,
+        },
+      });
+    },
+    [resume],
+  );
 
   const resumeLocal = useCallback(() => resume({ action: "resume" }), [resume]);
 
@@ -317,6 +334,7 @@ export function useWorkflowRun({
     sendPlanFeedback,
     approveCode,
     requestCodeChanges,
+    approveCriteria,
     cancelLocal,
     pauseLocal,
     resumeLocal,

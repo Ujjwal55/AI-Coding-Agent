@@ -7,6 +7,7 @@ def merge_messages(old_messages: List[Dict[str, Any]], new_messages: List[Dict[s
 class GraphState(TypedDict):
     # Core Context
     objective: str
+    repo_path: Optional[str]
     success_criteria: List[str]
     
     # Workspace (uploaded repo)

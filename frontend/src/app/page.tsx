@@ -30,6 +30,11 @@ import RunTimeline from "@/components/control/RunTimeline";
 import PlanReviewPanel from "@/components/control/PlanReviewPanel";
 import CodeReviewPanel from "@/components/control/CodeReviewPanel";
 import ResultPanel from "@/components/control/ResultPanel";
+import HumanGatePanel from "@/components/control/HumanGatePanel";
+import {
+  downloadWorkflowFile,
+  parseWorkflowFile,
+} from "@/utils/nodeConverter";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -37,27 +42,23 @@ const stack = (i: number) => ({ x: NODE_X, y: 40 + i * NODE_GAP });
 const initialNodes: Node[] = [
   { id: "objective", position: stack(0), data: { label: "Feature Request", nodeType: "objective", status: "pending" }, type: "custom" },
   { id: "criteria", position: stack(1), data: { label: "Define Criteria", nodeType: "criteria", status: "pending" }, type: "custom" },
-  { id: "code_understanding", position: stack(2), data: { label: "Understand Repo", nodeType: "code_understanding", status: "pending" }, type: "custom" },
-  { id: "planner", position: stack(3), data: { label: "Create Plan", nodeType: "planner", status: "pending" }, type: "custom" },
-  { id: "plan_review", position: stack(4), data: { label: "Review Plan", nodeType: "plan_review", status: "pending" }, type: "custom" },
-  { id: "executor", position: stack(5), data: { label: "Write Code", nodeType: "executor", status: "pending" }, type: "custom" },
-  { id: "validator", position: stack(6), data: { label: "Validate", nodeType: "validator", status: "pending" }, type: "custom" },
-  { id: "decision", position: stack(7), data: { label: "Evaluate", nodeType: "decision", status: "pending" }, type: "custom" },
-  { id: "human_approval", position: stack(8), data: { label: "Review Code", nodeType: "human_gate", status: "pending" }, type: "custom" },
-  { id: "end", position: stack(9), data: { label: "Task Successful", nodeType: "end", status: "pending" }, type: "custom" },
+  { id: "planner", position: stack(2), data: { label: "Create Plan", nodeType: "planner", status: "pending" }, type: "custom" },
+  { id: "plan_review", position: stack(3), data: { label: "Review Plan", nodeType: "plan_review", status: "pending" }, type: "custom" },
+  { id: "executor", position: stack(4), data: { label: "Write Code", nodeType: "executor", status: "pending" }, type: "custom" },
+  { id: "validator", position: stack(5), data: { label: "Validate", nodeType: "validator", status: "pending", maxRetries: "3" }, type: "custom" },
+  { id: "human_approval", position: stack(6), data: { label: "Review Code", nodeType: "human_gate", status: "pending" }, type: "custom" },
+  { id: "end", position: stack(7), data: { label: "Task Successful", nodeType: "end", status: "pending" }, type: "custom" },
 ];
 
 const initialEdges: Edge[] = [
   { id: "e-obj-crit", source: "objective", target: "criteria" },
-  { id: "e-crit-cu", source: "criteria", target: "code_understanding" },
-  { id: "e-cu-plan", source: "code_understanding", target: "planner" },
+  { id: "e-crit-plan", source: "criteria", target: "planner" },
   { id: "e-plan-pr", source: "planner", target: "plan_review" },
   { id: "e-pr-exec", source: "plan_review", target: "executor" },
   { id: "e-pr-plan", source: "plan_review", target: "planner", type: "smoothstep" },
   { id: "e-exec-val", source: "executor", target: "validator" },
-  { id: "e-val-dec", source: "validator", target: "decision" },
-  { id: "e-dec-hg", source: "decision", target: "human_approval" },
-  { id: "e-dec-plan", source: "decision", target: "planner", type: "smoothstep" },
+  { id: "e-val-hg", source: "validator", target: "human_approval" },
+  { id: "e-val-plan", source: "validator", target: "planner", type: "smoothstep" },
   { id: "e-hg-end", source: "human_approval", target: "end" },
   { id: "e-hg-plan", source: "human_approval", target: "planner", type: "smoothstep" },
 ];
@@ -136,6 +137,7 @@ export default function ControlPlanePage() {
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [events, setEvents] = useState<UiEvent[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [mission, setMission] = useState<MissionState>({
     objective: "",
     repoPath: null,
@@ -153,6 +155,7 @@ export default function ControlPlanePage() {
     currentPlan,
     planRevision,
     codeChangesSummary,
+    successCriteria,
     lastError,
     isBusy,
     isGraphLocked,
@@ -162,9 +165,9 @@ export default function ControlPlanePage() {
     approveCode,
     requestCodeChanges,
     cancelLocal,
-    pauseLocal,
-    resumeLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
+
+  const [consoleExpanded, setConsoleExpanded] = useState(false);
 
   useEffect(() => {
     const unsub = eventsPort.subscribe(setEvents);
@@ -315,6 +318,9 @@ export default function ControlPlanePage() {
   const [bottomHeight, setBottomHeight] = useState(280);
   const [consoleWidth, setConsoleWidth] = useState(350);
   const [reviewWidth, setReviewWidth] = useState(350);
+  const effectiveBottomHeight = consoleExpanded
+    ? Math.max(bottomHeight, 480)
+    : bottomHeight;
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -460,9 +466,33 @@ export default function ControlPlanePage() {
     }
   };
 
+  const handleExport = () => {
+    downloadWorkflowFile(nodes, edges);
+  };
+
+  const handleImportFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseWorkflowFile(text);
+      setNodes(parsed.nodes);
+      setEdges(parsed.edges);
+      setImportError(null);
+      eventsPort.append({
+        runId: null,
+        eventType: "run_started",
+        nodeId: null,
+        message: `Imported workflow from ${file.name} (${parsed.nodes.length} nodes)`,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to import workflow file";
+      setImportError(message);
+    }
+  };
+
   const handleRun = async () => {
-    if (!mission.prepared) {
-      alert("Prepare the mission before Run.");
+    if (!mission.objective.trim()) {
+      alert("Enter an objective before Run.");
       return;
     }
     await startRun(nodes, edges, {
@@ -475,34 +505,6 @@ export default function ControlPlanePage() {
   const handleCancel = () => {
     cancelLocal();
     eventsPort.reset();
-  };
-
-  const handleRestart = async () => {
-    if (!mission.prepared) {
-      alert("Prepare the mission before Run.");
-      return;
-    }
-    if (runStatus === "running") {
-      await pauseLocal();
-    }
-    cancelLocal();
-    eventsPort.reset();
-    
-    // Explicitly reset the status in the base nodes state
-    setNodes((nds) => 
-      nds.map((n) => ({
-        ...n,
-        data: { ...n.data, status: "pending" }
-      }))
-    );
-  };
-
-  const handleRunOrResume = () => {
-    if (runStatus === "paused") {
-      resumeLocal();
-    } else {
-      handleRun();
-    }
   };
 
   const downloadUrl = mission.workspaceId
@@ -537,11 +539,14 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
+        importError={importError}
         onObjectiveChange={(value) =>
-          setMission((m) => ({ ...m, objective: value, prepared: false }))
+          setMission((m) => ({ ...m, objective: value }))
         }
         onUploadFolder={handleUploadFolder}
         onEmptyWorkspace={handleEmptyWorkspace}
+        onExport={handleExport}
+        onImportFile={handleImportFile}
         onPrepare={handlePrepare}
         onRun={handleRunOrResume}
         onPause={pauseLocal}
@@ -554,7 +559,7 @@ export default function ControlPlanePage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-[1.6]">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <NodeLibrary
           locked={isGraphLocked}
           onDragStart={onDragStart}
@@ -581,7 +586,7 @@ export default function ControlPlanePage() {
 
       {/* Resizable Bottom Control Panel (Run Console, Step Timeline & Review Panels) */}
       <div
-        style={{ height: `${bottomHeight}px` }}
+        style={{ height: `${effectiveBottomHeight}px` }}
         className="relative flex shrink-0 border-t border-slate-300 bg-white shadow-lg"
       >
         {/* Top Resize Drag Handle */}
@@ -597,7 +602,8 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
-            onCancel={handleCancel}
+            expanded={consoleExpanded}
+            onToggleExpand={() => setConsoleExpanded((v) => !v)}
           />
         </div>
 
@@ -605,13 +611,13 @@ export default function ControlPlanePage() {
         <div
           onMouseDown={handleConsoleResize}
           className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
-          style={{ left: consoleWidth - 4, width: '8px' }}
+          style={{ left: consoleWidth - 4, width: "8px" }}
           title="Drag horizontally to resize console"
         >
           <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
         </div>
 
-        <div className="flex-1 min-w-0 flex h-full overflow-hidden">
+        <div className="flex-1 min-w-[300px] flex h-full overflow-hidden">
           <RunTimeline steps={timelineSteps} />
         </div>
 
@@ -619,7 +625,7 @@ export default function ControlPlanePage() {
         <div
           onMouseDown={handleReviewResize}
           className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
-          style={{ right: reviewWidth - 4, width: '8px' }}
+          style={{ right: reviewWidth - 4, width: "8px" }}
           title="Drag horizontally to resize review panel"
         >
           <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
@@ -649,14 +655,26 @@ export default function ControlPlanePage() {
               onRequestChanges={requestCodeChanges}
               isBusy={isBusy}
             />
-          ) : (
+          ) : pauseReason === "plan_review" ? (
             <PlanReviewPanel
               key={`plan-${planRevision}`}
-              isOpen={isPaused && pauseReason === "plan_review"}
+              isOpen={isPaused}
               plan={currentPlan}
               planRevision={planRevision}
               onApprove={approvePlan}
               onSendFeedback={sendPlanFeedback}
+              isBusy={isBusy}
+            />
+          ) : (
+            <HumanGatePanel
+              key={`gate-${successCriteria.join("|")}-${pauseReason}`}
+              isOpen={isPaused && pauseReason === "criteria_review"}
+              initialCriteria={
+                successCriteria.length > 0
+                  ? successCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n")
+                  : ""
+              }
+              onApprove={(text) => approveCriteria(text)}
               isBusy={isBusy}
             />
           )}

@@ -1,5 +1,6 @@
 import type {
   FileNode,
+  RunStartOptions,
   WorkflowRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
@@ -42,6 +43,10 @@ export interface WorkflowApiPort {
     zip: Blob,
     fileName?: string,
   ): Promise<{ workspace_id: string; file_tree: FileNode[] }>;
+  run(
+    versionId: string,
+    options?: RunStartOptions,
+  ): Promise<WorkflowRunRecord>;
 
   /** URL to download the (possibly modified) workspace as a zip. */
   downloadUrl(workspaceId: string): string;

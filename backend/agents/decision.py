@@ -32,8 +32,12 @@ async def plan_review_node(state: GraphState) -> Dict[str, Any]:
 
 
 def after_planner_route(state: GraphState) -> str:
-    """After planning: skip HITL plan review on validation-driven retries."""
-    if state.get("skip_plan_review"):
+    """After planning: skip HITL plan review on validation-driven retries.
+
+    Planner consumes ``skip_plan_review`` and sets ``plan_approved=True`` for
+    those retries, so we key off ``plan_approved`` here (post-node state).
+    """
+    if state.get("plan_approved"):
         return "executor"
     return "plan_review"
 

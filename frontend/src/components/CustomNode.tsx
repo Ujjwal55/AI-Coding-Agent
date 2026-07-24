@@ -43,17 +43,19 @@ const colorMap: Record<string, string> = {
 
 // Ring + accent applied on top of the base color to reflect live run status.
 const statusRing: Record<string, string> = {
-  in_progress: 'ring-2 ring-blue-500 border-blue-500 shadow-blue-100 animate-pulse bg-blue-50/90',
-  running: 'ring-2 ring-blue-500 border-blue-500 shadow-blue-100 animate-pulse bg-blue-50/90',
-  completed: 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/90',
-  failed: 'ring-2 ring-red-500 border-red-500 bg-red-50/90',
-  waiting: 'ring-2 ring-sky-400 border-sky-400 animate-pulse bg-sky-50/90',
-  pending: '',
+  in_progress:
+    "ring-2 ring-amber-400 border-amber-400 shadow-amber-100 animate-pulse bg-amber-50/90",
+  running:
+    "ring-2 ring-amber-400 border-amber-400 shadow-amber-100 animate-pulse bg-amber-50/90",
+  completed: "ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/90",
+  failed: "ring-2 ring-red-500 border-red-500 bg-red-50/90",
+  waiting: "ring-2 ring-sky-400 border-sky-400 animate-pulse bg-sky-50/90",
+  pending: "",
 };
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === 'running' || status === 'in_progress') {
-    return <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />;
+  if (status === "running" || status === "in_progress") {
+    return <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />;
   }
   if (status === 'completed') {
     return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;

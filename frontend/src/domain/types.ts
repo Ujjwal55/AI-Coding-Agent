@@ -57,8 +57,12 @@ export interface MissionState {
 export interface RunIntent {
   objective: string;
   repoPath: string | null;
-  attachments: string[];
   graphJson: { nodes: unknown[]; edges: unknown[] };
+}
+
+export interface RunStartOptions {
+  objective: string;
+  repoPath?: string | null;
 }
 
 export interface WorkflowRecord {

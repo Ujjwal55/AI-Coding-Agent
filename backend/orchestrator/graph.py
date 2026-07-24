@@ -60,8 +60,13 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             
         try:
             result = await base_func(state)
-            
-            val_status = result.get("validation_status") if isinstance(result, dict) else None
+            if not isinstance(result, dict):
+                result = {}
+            # Persist node UI config so conditional routers (decision / plan_review)
+            # can read maxRetries / maxPlanRevisions from this node's settings.
+            result = {**result, "_current_node_config": node_data}
+
+            val_status = result.get("validation_status")
             final_status = "failed" if val_status == "FAIL" else "completed"
             
             # 2. Broadcast COMPLETED / FAILED
@@ -127,11 +132,23 @@ def build_dynamic_graph(graph_json: dict):
     executor_id = find_node_by_type("executor")
     human_gate_id = find_node_by_type("human_gate")
     plan_review_id = find_node_by_type("plan_review")
+    decision_id = find_node_by_type("decision")
 
     # Node types whose outgoing edges are replaced by deterministic conditional
     # routers. We only need one edge per such node to trigger wiring, so we
     # remember which we've already processed.
     processed_conditional_nodes = set()
+
+    def _wire_validation_router(source: str, fallback_target):
+        workflow.add_conditional_edges(
+            source,
+            should_human_approve,
+            {
+                "planner": planner_id or fallback_target,
+                "human_approval": human_gate_id or fallback_target,
+                "end": END,
+            },
+        )
 
     # 2. Add edges
     for edge in edges:
@@ -153,16 +170,14 @@ def build_dynamic_graph(graph_json: dict):
             if source in processed_conditional_nodes:
                 continue
             processed_conditional_nodes.add(source)
-            # Validation outcome -> retry / code review / safe stop
-            workflow.add_conditional_edges(
-                source,
-                should_human_approve,
-                {
-                    "planner": planner_id or target,
-                    "human_approval": human_gate_id or target,
-                    "end": END,
-                },
-            )
+            # Legacy graphs: Decision owns validation routing.
+            _wire_validation_router(source, target)
+        elif source_type == "validator" and not decision_id:
+            # Simplified graphs: route directly from Validator (Decision is optional).
+            if source in processed_conditional_nodes:
+                continue
+            processed_conditional_nodes.add(source)
+            _wire_validation_router(source, target)
         elif source_type == "planner":
             if source in processed_conditional_nodes:
                 continue

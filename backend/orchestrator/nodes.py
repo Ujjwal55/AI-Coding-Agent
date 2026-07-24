@@ -1,5 +1,5 @@
 from orchestrator.state import GraphState
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import asyncio
 import os
 from agents.llm import get_llm, normalize_llm_content
@@ -18,16 +18,29 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     AI Planner: Generates a spec-driven implementation plan using:
     - The user's objective
     - Success criteria
-    - Code summary from the code understanding node
+    - Codebase analysis (runs understanding inline when missing)
     - Any human feedback from a previous iteration
     """
     config = state.get("_current_node_config", {})
     objective = state.get("objective", "Build feature requirement")
     criteria = state.get("success_criteria", [])
-    code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
     previous_plan = state.get("plan", None)
-    model_name = config.get("model", "gemini-3.1-flash-lite")
+    model_name = config.get("model", "gemini-2.5-flash")
+    extra_instructions = (config.get("instructions") or "").strip()
+
+    # Fold Code Understanding into Planner when no prior summary exists
+    # (e.g. simplified graphs without a separate understanding node).
+    understand_updates: Dict[str, Any] = {}
+    code_summary = (state.get("code_summary") or "").strip()
+    if not code_summary or code_summary == "No codebase context available.":
+        from agents.code_understanding import code_understanding_node
+
+        understand_updates = await code_understanding_node(state)
+        code_summary = (
+            (understand_updates.get("code_summary") or "").strip()
+            or "No codebase context available."
+        )
 
     start_node("planner")
     llm = get_llm(model_name)
@@ -48,6 +61,9 @@ Your plan MUST include:
 
 Format the plan in clean markdown. Be specific about file paths and code changes.
 Reference actual files and structures from the codebase summary provided."""
+
+    if extra_instructions:
+        system_prompt += f"\n\nAdditional instructions from the engineer:\n{extra_instructions}"
 
     human_prompt_parts = [f"## Objective\n{objective}"]
 
@@ -135,6 +151,7 @@ Reference actual files and structures from the codebase summary provided."""
     skip_review = bool(state.get("skip_plan_review"))
     end_node("planner")
     return {
+        **understand_updates,
         "plan": plan,
         # Auto-approve when this is a validation-driven retry (human already OK'd a plan).
         "plan_approved": True if skip_review else False,
@@ -144,6 +161,44 @@ Reference actual files and structures from the codebase summary provided."""
         "pause_reason": None if skip_review else "plan_review",
     }
 
+
+
+def _sandbox_root() -> str:
+    """Workspace root for allowlisted Executor cwds (override with WORKSPACE_ROOT)."""
+    env_root = os.environ.get("WORKSPACE_ROOT")
+    if env_root:
+        return os.path.abspath(env_root)
+    # backend/orchestrator -> AI-coding-loop/ (same as old ../../target_repo)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def resolve_repo_cwd(repo_path: Optional[str]) -> str:
+    """
+    Resolve repo_path under the sandbox root. Reject path escape.
+    Falls back to backend/target_repo when missing or invalid.
+    """
+    root = _sandbox_root()
+    default = os.path.abspath(os.path.join(root, "target_repo"))
+    candidate = (repo_path or "target_repo").strip() or "target_repo"
+
+    if os.path.isabs(candidate):
+        resolved = os.path.abspath(candidate)
+    else:
+        resolved = os.path.abspath(os.path.join(root, candidate))
+
+    try:
+        common = os.path.commonpath([root, resolved])
+    except ValueError:
+        return default
+
+    if common != root:
+        return default
+
+    if not os.path.isdir(resolved):
+        # Prefer default sandbox if selected path does not exist yet
+        return default if os.path.isdir(default) else resolved
+
+    return resolved
 
 
 async def executor_node(state: GraphState) -> Dict[str, Any]:
@@ -157,8 +212,6 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
     model_name = config.get("model", "gemini-3.1-flash-lite")
-
-    start_node("executor")
 
     if not workspace_id:
         end_node("executor")
@@ -227,6 +280,9 @@ IMPORTANT RULES:
 - Follow the existing code style and conventions.
 - Make sure all imports are correct.
 - Do NOT wrap the file content in markdown code blocks."""
+
+    if extra_instructions:
+        system_prompt += f"\n\nAdditional instructions from the engineer:\n{extra_instructions}"
 
     human_prompt = f"""## Objective
 {objective}
@@ -326,10 +382,33 @@ Please generate the code changes now."""
         }
 
 
+def _validation_fail(
+    state: GraphState,
+    *,
+    feedback: str,
+    confidence: float,
+) -> Dict[str, Any]:
+    """FAIL payload; tags retry loops to skip plan-review HITL (replaces Decision node)."""
+    config = state.get("_current_node_config", {})
+    max_retries = int(config.get("maxRetries", 3))
+    result: Dict[str, Any] = {
+        "validation_status": "FAIL",
+        "confidence_score": confidence,
+        "feedback": feedback,
+    }
+    if state.get("current_attempt", 0) < max_retries:
+        result["skip_plan_review"] = True
+        result["plan_feedback"] = (
+            feedback or "Validation failed — revise the plan and implementation."
+        )
+    return result
+
+
 async def validator_node(state: GraphState) -> Dict[str, Any]:
     """
     Validator: Checks that modified files are syntactically valid.
     Runs basic syntax checks on Python and JavaScript files.
+    Also owns retry tagging (skip_plan_review) formerly done by Decision.
     """
     workspace_id = state.get("workspace_id")
     changes = state.get("code_changes_summary") or ""
@@ -346,7 +425,6 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         "No file changes were parsed",
     )
     if any(marker in changes or marker in executor_output for marker in failure_markers):
-        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.2,
@@ -354,7 +432,6 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         }
 
     if not workspace_id:
-        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.4,
@@ -363,7 +440,6 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
-        end_node("validator")
         return {"validation_status": "FAIL", "confidence_score": 0.5, "feedback": "Workspace directory not found."}
 
     errors = []
@@ -400,7 +476,6 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     if errors:
         feedback = "## Validation Errors\n\n" + "\n".join(f"- {e}" for e in errors)
-        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.3,
