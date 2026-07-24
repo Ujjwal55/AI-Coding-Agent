@@ -1,5 +1,5 @@
 from orchestrator.state import GraphState
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import asyncio
 import os
 from agents.llm import get_llm, normalize_llm_content
@@ -148,6 +148,44 @@ Reference actual files and structures from the codebase summary provided."""
         "pause_reason": None if skip_review else "plan_review",
     }
 
+
+
+def _sandbox_root() -> str:
+    """Workspace root for allowlisted Executor cwds (override with WORKSPACE_ROOT)."""
+    env_root = os.environ.get("WORKSPACE_ROOT")
+    if env_root:
+        return os.path.abspath(env_root)
+    # backend/orchestrator -> AI-coding-loop/ (same as old ../../target_repo)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def resolve_repo_cwd(repo_path: Optional[str]) -> str:
+    """
+    Resolve repo_path under the sandbox root. Reject path escape.
+    Falls back to backend/target_repo when missing or invalid.
+    """
+    root = _sandbox_root()
+    default = os.path.abspath(os.path.join(root, "target_repo"))
+    candidate = (repo_path or "target_repo").strip() or "target_repo"
+
+    if os.path.isabs(candidate):
+        resolved = os.path.abspath(candidate)
+    else:
+        resolved = os.path.abspath(os.path.join(root, candidate))
+
+    try:
+        common = os.path.commonpath([root, resolved])
+    except ValueError:
+        return default
+
+    if common != root:
+        return default
+
+    if not os.path.isdir(resolved):
+        # Prefer default sandbox if selected path does not exist yet
+        return default if os.path.isdir(default) else resolved
+
+    return resolved
 
 
 async def executor_node(state: GraphState) -> Dict[str, Any]:

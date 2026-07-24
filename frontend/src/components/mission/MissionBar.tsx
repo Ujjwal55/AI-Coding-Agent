@@ -2,15 +2,26 @@
 
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench } from "lucide-react";
+import {
+  Download,
+  FolderGit2,
+  FolderPlus,
+  Loader2,
+  Play,
+  Upload,
+  Wrench,
+} from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
+  importError?: string | null;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
+  onExport: () => void;
+  onImportFile: (file: File) => void;
   onPrepare: () => void;
   onRun: () => void;
 }
@@ -25,13 +36,17 @@ export default function MissionBar({
   mission,
   runStatus,
   isBusy,
+  importError,
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
+  onExport,
+  onImportFile,
   onPrepare,
   onRun,
 }: MissionBarProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
 
@@ -41,9 +56,6 @@ export default function MissionBar({
         <h1 className="text-sm font-bold tracking-wide text-slate-800">
           AI Coding Control Plane
         </h1>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          Spec-Driven Loop
-        </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -62,7 +74,6 @@ export default function MissionBar({
           {...directoryProps}
           className="hidden"
           onChange={(e) => {
-            // Allow empty folders: browsers may return 0 files; still create a workspace.
             if (e.target.files) {
               onUploadFolder(e.target.files);
             }
@@ -97,8 +108,26 @@ export default function MissionBar({
 
         <button
           type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Upload className="h-4 w-4" />
+          Import
+        </button>
+
+        <button
+          type="button"
+          onClick={onExport}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <Download className="h-4 w-4" />
+          Export
+        </button>
+
+        <button
+          type="button"
           onClick={onPrepare}
-          disabled={isBusy}
+          disabled={isBusy || mission.uploading}
           className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50"
         >
           <Wrench className="h-4 w-4" />
@@ -114,6 +143,18 @@ export default function MissionBar({
           <Play className="h-4 w-4" />
           Run
         </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) onImportFile(file);
+          }}
+        />
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -137,6 +178,10 @@ export default function MissionBar({
         />
         <Chip active={runStatus !== "idle"} label={`run: ${runStatus}`} />
       </div>
+
+      {importError && (
+        <p className="mt-2 text-xs text-red-600">{importError}</p>
+      )}
     </header>
   );
 }

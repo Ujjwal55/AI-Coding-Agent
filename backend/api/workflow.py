@@ -69,8 +69,16 @@ class ResumeRequest(BaseModel):
     action: Optional[str] = None  # "approve_plan", "send_plan_feedback", "approve_code", "request_code_changes"
     feedback: Optional[str] = None
 
+class RunRequest(BaseModel):
+    objective: Optional[str] = None
+    repo_path: Optional[str] = None
+
 @router.post("/{version_id}/run", response_model=WorkflowRunRead)
-async def run_workflow(version_id: str, body: Optional[RunRequest] = None, db: AsyncSession = Depends(get_db)):
+async def run_workflow(
+    version_id: str,
+    request: RunRequest = RunRequest(),
+    db: AsyncSession = Depends(get_db),
+):
     v_result = await db.execute(select(WorkflowVersion).where(WorkflowVersion.id == version_id))
     version = v_result.scalar_one_or_none()
     if not version:
@@ -81,31 +89,18 @@ async def run_workflow(version_id: str, body: Optional[RunRequest] = None, db: A
     db.add(run)
     await db.commit()
     await db.refresh(run)
-
-    workspace_id = body.workspace_id if body else None
-
-    # Build the initial graph state from the request so the user's actual
-    # objective/requirements reach the planner (previously hardcoded).
+    
     initial_state = {
-        "objective": (body.objective if body and body.objective else "Build the feature"),
-        "success_criteria": (body.success_criteria if body and body.success_criteria else []),
+        "objective": (request.objective or "").strip() or "Build the feature",
+        "repo_path": (request.repo_path or "").strip() or "target_repo",
         "current_attempt": 0,
+        "success_criteria": [],
         "messages": [],
-        "workspace_id": workspace_id,
-        "plan_approved": False,
-        "plan_feedback": None,
-        "plan_revision": 0,
-        "max_plan_revisions": (body.max_plan_revisions if body and body.max_plan_revisions else 3),
-        "skip_plan_review": False,
-        "human_approved": False,
-        "pause_reason": None,
     }
 
     # Delegate to runtime manager
-    run = await execute_workflow(
-        version_id, db, str(run.id), initial_state=initial_state, workspace_id=workspace_id
-    )
-
+    run = await execute_workflow(version_id, db, str(run.id), initial_state)
+    
     return run
 
 @router.post("/{run_id}/resume", response_model=WorkflowRunRead)
