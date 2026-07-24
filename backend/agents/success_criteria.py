@@ -28,7 +28,8 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
             HumanMessage(content=f"Objective: {objective}")
         ])
         
-        generated_criteria = [c.strip("- *1234567890.") for c in response.content.split("\n") if c.strip()]
+        raw_text = getattr(response, "content", str(response))
+        generated_criteria = [c.strip("- *1234567890.") for c in raw_text.split("\n") if c.strip()]
         
         if not generated_criteria:
             raise ValueError("No criteria generated")
