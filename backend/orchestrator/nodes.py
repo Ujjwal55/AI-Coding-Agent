@@ -2,10 +2,29 @@ from orchestrator.state import GraphState
 from typing import Dict, Any
 import asyncio
 import os
+from agents.llm import get_llm
+from langchain_core.messages import SystemMessage, HumanMessage
 
 async def planner_node(state: GraphState) -> Dict[str, Any]:
-    # Use LLM to generate plan based on objective and criteria
-    plan = f"Plan for: {state['objective']}\nSteps:\n1. Analyze repo\n2. Modify logic\n3. Verify against criteria."
+    config = state.get("_current_node_config", {})
+    objective = state.get("objective", "Unknown objective")
+    criteria = state.get("success_criteria", [])
+    model_name = config.get("model", "gemini-1.5-pro")
+    instructions = config.get("instructions", "Generate a step-by-step implementation plan.")
+    
+    llm = get_llm(model_name)
+    prompt = f"Objective: {objective}\nCriteria: {', '.join(criteria)}"
+    
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=instructions),
+            HumanMessage(content=prompt)
+        ])
+        plan = response.content
+    except Exception as e:
+        # Fallback if API fails
+        plan = f"Mock Plan for: {objective}\n1. Analyze repo\n2. Modify logic\n3. Verify against criteria.\n(Note: LLM failed - {str(e)[:30]})"
+        
     return {"plan": plan}
 
 async def executor_node(state: GraphState) -> Dict[str, Any]:
