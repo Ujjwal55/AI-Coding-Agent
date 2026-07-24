@@ -9,9 +9,10 @@ import type {
   WorkflowRunRecord,
   WorkflowVersionRecord,
 } from "@/domain/types";
+import { getApiBaseUrl } from "@/utils/apiBaseUrl";
 
 function getBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  return getApiBaseUrl();
 }
 
 async function parseJson<T>(res: Response): Promise<T> {

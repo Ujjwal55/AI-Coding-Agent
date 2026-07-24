@@ -35,6 +35,7 @@ import {
   downloadWorkflowFile,
   parseWorkflowFile,
 } from "@/utils/nodeConverter";
+import { getApiBaseUrl } from "@/utils/apiBaseUrl";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -176,7 +177,7 @@ export default function ControlPlanePage() {
   useEffect(() => {
     const unsub = eventsPort.subscribe(setEvents);
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const API_BASE = getApiBaseUrl();
     const eventSource = new EventSource(`${API_BASE}/api/workflows/logs/stream`);
 
     eventSource.onmessage = (event) => {
