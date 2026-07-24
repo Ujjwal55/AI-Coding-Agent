@@ -316,11 +316,20 @@ Please generate the code changes now."""
         changes_made = []
         import re
 
-        # Parse WRITE_FILE blocks
-        write_pattern = r'===== WRITE_FILE: (.+?) =====\n(.*?)===== END_FILE ====='
+        # Parse WRITE_FILE blocks - more forgiving regex
+        write_pattern = r'={3,6}\s*WRITE_FILE:\s*(.+?)\s*={3,6}\n(.*?)(?:={3,6}\s*END_FILE\s*={3,6}|$)'
         for match in re.finditer(write_pattern, llm_output, re.DOTALL):
             file_path = match.group(1).strip()
             file_content = match.group(2).strip()
+            
+            # Strip markdown code blocks if the LLM wrapped the content
+            if file_content.startswith('```'):
+                lines = file_content.split('\n')
+                if len(lines) > 1 and lines[0].startswith('```'):
+                    lines = lines[1:]
+                if len(lines) > 0 and lines[-1].strip() == '```':
+                    lines = lines[:-1]
+                file_content = '\n'.join(lines)
 
             full_path = os.path.join(workspace_path, file_path)
             # Security: ensure path stays within workspace

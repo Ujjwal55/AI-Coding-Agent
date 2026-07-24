@@ -54,6 +54,9 @@ async def execute_workflow(
             state["repo_path"] = "target_repo"
         if not state.get("objective"):
             state["objective"] = "Build the feature"
+        if workspace_id:
+            state["workspace_id"] = workspace_id
+
         
         # Determine if we are resuming or starting fresh
         snapshot = compiled_graph.get_state(config)

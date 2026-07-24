@@ -51,6 +51,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     container_name: ai_loop_frontend
     command: npm run dev
     ports:

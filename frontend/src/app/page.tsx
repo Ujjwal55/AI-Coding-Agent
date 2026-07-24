@@ -637,8 +637,6 @@ export default function ControlPlanePage() {
             runStatus={runStatus}
             expanded={consoleExpanded}
             onToggleExpand={() => setConsoleExpanded((v) => !v)}
-            llmUsage={llmUsage}
-            onCancel={handleCancel}
           />
         </div>
 

@@ -5,6 +5,7 @@ WORKDIR /app
 # Install system dependencies if required
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install python dependencies
