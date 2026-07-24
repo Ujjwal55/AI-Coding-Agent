@@ -127,7 +127,47 @@ export default function ControlPlanePage() {
     cancelLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
-  useEffect(() => eventsPort.subscribe(setEvents), []);
+  useEffect(() => {
+    const unsub = eventsPort.subscribe(setEvents);
+
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const eventSource = new EventSource(`${API_BASE}/api/workflows/logs/stream`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "node_status") {
+          const eventType =
+            data.status === "in_progress" ? "node_started" :
+            data.status === "completed" ? "node_completed" :
+            data.status === "failed" ? "error" : "node_completed";
+
+          eventsPort.append({
+            runId: null,
+            eventType,
+            nodeId: data.node_id,
+            message: `${data.label || data.node_type || data.node_id}: ${String(data.status).toUpperCase()}`,
+            payload: data.output || data.error ? { output: data.output, error: data.error } : null,
+          });
+        } else if (data.message) {
+          eventsPort.append({
+            runId: null,
+            eventType: data.level === "ERROR" || data.level === "CRITICAL" ? "error" : "node_started",
+            nodeId: null,
+            message: `[${data.level || "INFO"}] ${data.message}`,
+            payload: data.extra || null,
+          });
+        }
+      } catch (err) {
+        console.error("Error parsing SSE event:", err);
+      }
+    };
+
+    return () => {
+      unsub();
+      eventSource.close();
+    };
+  }, []);
 
   const nodeStatuses = useMemo(
     () => projectNodeStatuses(events, nodes.map((n) => n.id)),

@@ -110,13 +110,13 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
     return run
 
 from fastapi.responses import StreamingResponse
-from utils.logger import subscribe_logs, unsubscribe_logs
+from utils.broadcaster import subscribe_events, unsubscribe_events
 import asyncio
 
 @router.get("/logs/stream")
 async def stream_logs():
     """Streams live backend JSON log events to frontend clients via Server-Sent Events (SSE)."""
-    queue = await subscribe_logs()
+    queue = await subscribe_events()
 
     async def event_generator():
         try:
@@ -126,6 +126,6 @@ async def stream_logs():
         except asyncio.CancelledError:
             pass
         finally:
-            await unsubscribe_logs(queue)
+            await unsubscribe_events(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

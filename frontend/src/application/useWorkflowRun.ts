@@ -58,14 +58,13 @@ export function useWorkflowRun({
       setLastError(null);
       setRunStatus("running");
       const nodeIds = nodes.map((n) => n.id);
-
       try {
         const wf = await workflowApi.createWorkflow({
           name: "UI Generated Workflow",
           description: "Created from canvas",
         });
         const version = await workflowApi.saveVersion(wf.id, { nodes, edges });
-        eventsPort.seedDemoRun(version.id, nodeIds);
+        eventsPort.reset();
         const runData = await workflowApi.run(version.id);
         console.log("LangGraph Execution Result:", runData);
         applyRunResult(runData, nodeIds);

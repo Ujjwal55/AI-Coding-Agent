@@ -4,6 +4,7 @@ from orchestrator.nodes import planner_node, executor_node, validator_node, huma
 from agents.success_criteria import criteria_node
 from agents.decision import should_human_approve, decision_node
 from utils.logger import get_logger
+from utils.broadcaster import broadcast_event
 
 logger = get_logger(__name__)
 
@@ -16,11 +17,49 @@ NODE_MAP = {
     'human_gate': human_approval_node,
 }
 
-def create_node_wrapper(base_func, node_data):
-    """Wraps the original node function to inject UI configuration."""
+def create_node_wrapper(base_func, node_id: str, node_data: dict):
+    """Wraps the original node function to inject UI configuration and broadcast node status events."""
     async def wrapper(state: GraphState):
         state["_current_node_config"] = node_data
-        return await base_func(state)
+        node_type = node_data.get("nodeType", "node")
+        label = node_data.get("label", node_type.capitalize())
+        
+        # 1. Broadcast IN_PROGRESS
+        broadcast_event({
+            "type": "node_status",
+            "node_id": node_id,
+            "node_type": node_type,
+            "label": label,
+            "status": "in_progress"
+        })
+        
+        try:
+            result = await base_func(state)
+            
+            val_status = result.get("validation_status") if isinstance(result, dict) else None
+            final_status = "failed" if val_status == "FAIL" else "completed"
+            
+            # 2. Broadcast COMPLETED / FAILED
+            broadcast_event({
+                "type": "node_status",
+                "node_id": node_id,
+                "node_type": node_type,
+                "label": label,
+                "status": final_status,
+                "output": result
+            })
+            return result
+        except Exception as e:
+            broadcast_event({
+                "type": "node_status",
+                "node_id": node_id,
+                "node_type": node_type,
+                "label": label,
+                "status": "failed",
+                "error": str(e)
+            })
+            raise e
+
     return wrapper
 
 def build_dynamic_graph(graph_json: dict):
@@ -38,13 +77,17 @@ def build_dynamic_graph(graph_json: dict):
         node_type = node.get("data", {}).get("nodeType", "planner")
         
         if node_type == "objective":
-            async def dummy_objective(state: GraphState): return {}
+            async def dummy_objective(state: GraphState, nid=node_id, ndata=node.get("data", {})):
+                label = ndata.get("label", "Objective")
+                broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "in_progress"})
+                broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "completed"})
+                return {}
             workflow.add_node(node_id, dummy_objective)
             valid_node_ids.add(node_id)
         elif node_type == "end":
             pass # END is a special LangGraph constant
         elif node_type in NODE_MAP and NODE_MAP[node_type] is not None:
-            wrapped = create_node_wrapper(NODE_MAP[node_type], node.get("data", {}))
+            wrapped = create_node_wrapper(NODE_MAP[node_type], node_id, node.get("data", {}))
             workflow.add_node(node_id, wrapped)
             valid_node_ids.add(node_id)
             
