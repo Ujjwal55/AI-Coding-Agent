@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 _local_llm_instance = None
 
 # Default model that is known to work with current Google GenAI API keys.
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 
 def normalize_llm_content(content) -> str:
@@ -119,7 +119,7 @@ def get_llm(model_name: str):
         "gemini-1.5-flash": DEFAULT_GEMINI_MODEL,
         "gemini-1.5-flash-latest": DEFAULT_GEMINI_MODEL,
         "gemini-pro": DEFAULT_GEMINI_MODEL,
-        "gemini-2.5-pro": DEFAULT_GEMINI_MODEL,  # pro can 404 / quota on some keys
+        "ggemini-3.1-flash-lite": DEFAULT_GEMINI_MODEL,  # pro can 404 / quota on some keys
     }
     if model_name in legacy_gemini:
         print(f"ℹ️  Remapped Gemini model '{requested}' → '{legacy_gemini[model_name]}'")

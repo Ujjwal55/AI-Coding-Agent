@@ -99,7 +99,7 @@ Keep your analysis concise but thorough. This summary will be used by another AI
     
     try:
         config = state.get("_current_node_config", {})
-        model_name = config.get("model", "gemini-2.5-flash")
+        model_name = config.get("model", "gemini-3.1-flash-lite")
         llm = get_llm(model_name)
         messages = [
             SystemMessage(content=system_prompt),
