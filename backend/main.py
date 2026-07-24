@@ -11,13 +11,8 @@ from alembic import command
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Run Alembic DB migrations automatically on startup
-    try:
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
-    except Exception as e:
-        print(f"Alembic migration notice: {e}")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
     yield
     # Teardown
     await engine.dispose()

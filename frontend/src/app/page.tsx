@@ -104,12 +104,14 @@ export default function WorkflowBuilder() {
     );
   };
 
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   const handleRunWorkflow = async () => {
     try {
       setIsConsoleOpen(true); 
 
       // 1. Create a Workflow record
-      const wfRes = await fetch("http://localhost:8000/api/workflows/", {
+      const wfRes = await fetch(`${API_BASE}/api/workflows/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "UI Generated Workflow", description: "Created from canvas" })
@@ -117,7 +119,7 @@ export default function WorkflowBuilder() {
       const wf = await wfRes.json();
 
       // 2. Save the React Flow JSON as a Version
-      const vRes = await fetch(`http://localhost:8000/api/workflows/${wf.id}/versions`, {
+      const vRes = await fetch(`${API_BASE}/api/workflows/${wf.id}/versions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ graph_json: { nodes, edges } })
@@ -125,7 +127,7 @@ export default function WorkflowBuilder() {
       const version = await vRes.json();
 
       // 3. Execute the Graph dynamically!
-      const runRes = await fetch(`http://localhost:8000/api/workflows/${version.id}/run`, {
+      const runRes = await fetch(`${API_BASE}/api/workflows/${version.id}/run`, {
         method: "POST"
       });
       const runData = await runRes.json();
@@ -148,7 +150,7 @@ export default function WorkflowBuilder() {
   const handleResume = async () => {
      if (!pausedRunId) return;
      try {
-       const res = await fetch(`http://localhost:8000/api/workflows/${pausedRunId}/resume`, {
+       const res = await fetch(`${API_BASE}/api/workflows/${pausedRunId}/resume`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -315,18 +317,18 @@ export default function WorkflowBuilder() {
                 <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Node Label</label>
                 <input 
                   type="text" 
-                  value={selectedNode.data.label as string || ''}
+                  value={(selectedNode?.data?.label as string) || ''}
                   onChange={(e) => updateNodeData(selectedNode.id, 'label', e.target.value)}
                   className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
-              {['planner', 'executor', 'validator'].includes(selectedNode.data.nodeType as string) && (
+              {['planner', 'executor', 'validator'].includes(selectedNode?.data?.nodeType as string) && (
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Model</label>
                     <select 
-                      value={(selectedNode.data.model as string) || 'gpt-4o'}
+                      value={(selectedNode?.data?.model as string) || 'gpt-4o'}
                       onChange={(e) => updateNodeData(selectedNode.id, 'model', e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
@@ -340,7 +342,7 @@ export default function WorkflowBuilder() {
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">System Prompt / Instructions</label>
                     <textarea 
                       rows={5}
-                      value={(selectedNode.data.instructions as string) || ''}
+                      value={(selectedNode?.data?.instructions as string) || ''}
                       onChange={(e) => updateNodeData(selectedNode.id, 'instructions', e.target.value)}
                       placeholder="You are an expert engineer..."
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -353,7 +355,7 @@ export default function WorkflowBuilder() {
                       type="number" 
                       min="0"
                       max="10"
-                      value={(selectedNode.data.maxRetries as string) || '3'}
+                      value={(selectedNode?.data?.maxRetries as string) || '3'}
                       onChange={(e) => updateNodeData(selectedNode.id, 'maxRetries', e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -361,12 +363,12 @@ export default function WorkflowBuilder() {
                 </>
               )}
 
-              {selectedNode.data.nodeType === 'executor' && (
+              {selectedNode?.data?.nodeType === 'executor' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Execution Command</label>
                   <input 
                     type="text" 
-                    value={(selectedNode.data.command as string) || 'claude-code run'}
+                    value={(selectedNode?.data?.command as string) || 'claude-code run'}
                     onChange={(e) => updateNodeData(selectedNode.id, 'command', e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />

@@ -34,7 +34,7 @@ const colorMap: Record<string, string> = {
 };
 
 export default function CustomNode({ data, isConnectable }: any) {
-  const type = data.nodeType || 'planner';
+  const type = data?.nodeType || 'planner';
   const icon = iconMap[type] || <Settings className="w-4 h-4 text-slate-600" />;
   const colors = colorMap[type] || 'border-slate-200 bg-white';
 
@@ -46,7 +46,7 @@ export default function CustomNode({ data, isConnectable }: any) {
         {icon}
         <div className="flex flex-col">
           <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">{type.replace('_', ' ')}</span>
-          <span className="text-sm font-medium text-slate-900">{data.label}</span>
+          <span className="text-sm font-medium text-slate-900">{data?.label || 'Node'}</span>
         </div>
       </div>
 
