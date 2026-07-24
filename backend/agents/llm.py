@@ -1,5 +1,5 @@
 from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenAI
+from langchain_google_genai import ChatGoogleGenerativeAI as ChatGoogleGenAI
 
 def get_llm(model_name: str):
     """
@@ -11,6 +11,5 @@ def get_llm(model_name: str):
         return ChatGoogleGenAI(model=model_name)
     else:
         # Default/Fallback to Groq (free tier)
-        # Using a reliable free model if none matched specifically
         fallback = model_name if ("llama" in model_name or "mixtral" in model_name or "gemma" in model_name) else "llama3-70b-8192"
         return ChatGroq(model_name=fallback)
