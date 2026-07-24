@@ -4,9 +4,9 @@ import asyncio
 import os
 from agents.llm import get_llm, normalize_llm_content
 from langchain_core.messages import SystemMessage, HumanMessage
-import logging
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 WORKSPACES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspaces"))
 
@@ -20,7 +20,7 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     - Any human feedback from a previous iteration
     """
     config = state.get("_current_node_config", {})
-    objective = state.get("objective", "Unknown objective")
+    objective = state.get("objective", "Build feature requirement")
     criteria = state.get("success_criteria", [])
     code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
@@ -105,6 +105,7 @@ Reference actual files and structures from the codebase summary provided."""
         "plan_revision": state.get("plan_revision", 0) + 1,  # bounded loop counter
         "pause_reason": "plan_review",
     }
+
 
 
 async def executor_node(state: GraphState) -> Dict[str, Any]:
@@ -365,6 +366,13 @@ async def human_approval_node(state: GraphState) -> Dict[str, Any]:
     When resumed, we check whether the human approved the code changes.
     """
     approved = state.get("human_approved", True)
+
+    logger.info("⚡ [START] Human Approval Node processing...", extra={"node": "human_gate", "human_approved": approved})
+
+    # Simulated 10-second gate check delay
+    logger.info(f"⏳ Human Gate processing approval status... (waiting {STEP_DELAY_SECONDS} seconds)", extra={"status": "IN_PROGRESS"})
+    await asyncio.sleep(STEP_DELAY_SECONDS)
+
     if not approved:
         return {
             "validation_status": "FAIL",

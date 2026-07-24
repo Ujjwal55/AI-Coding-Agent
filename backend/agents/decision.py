@@ -1,8 +1,12 @@
 from typing import Dict, Any
 from orchestrator.state import GraphState
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 async def decision_node(state: GraphState) -> Dict[str, Any]:
     """Pass-through node representing the Decision step in the graph."""
+    logger.debug("Executing decision_node pass-through")
     return {}
 
 

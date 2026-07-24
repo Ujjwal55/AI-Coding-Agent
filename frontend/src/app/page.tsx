@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import JSZip from "jszip";
 import {
   addEdge,
   useEdgesState,
@@ -87,6 +86,7 @@ const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB total
 async function zipSelectedFolder(
   files: FileList,
 ): Promise<{ blob: Blob; count: number } | { error: string }> {
+  const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   let count = 0;
   let total = 0;
@@ -151,7 +151,47 @@ export default function ControlPlanePage() {
     cancelLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
-  useEffect(() => eventsPort.subscribe(setEvents), []);
+  useEffect(() => {
+    const unsub = eventsPort.subscribe(setEvents);
+
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const eventSource = new EventSource(`${API_BASE}/api/workflows/logs/stream`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "node_status") {
+          const eventType =
+            data.status === "in_progress" ? "node_started" :
+            data.status === "completed" ? "node_completed" :
+            data.status === "failed" ? "error" : "node_completed";
+
+          eventsPort.append({
+            runId: null,
+            eventType,
+            nodeId: data.node_id,
+            message: `${data.label || data.node_type || data.node_id}: ${String(data.status).toUpperCase()}`,
+            payload: data.output || data.error ? { output: data.output, error: data.error } : null,
+          });
+        } else if (data.message) {
+          eventsPort.append({
+            runId: null,
+            eventType: data.level === "ERROR" || data.level === "CRITICAL" ? "error" : "node_started",
+            nodeId: null,
+            message: `[${data.level || "INFO"}] ${data.message}`,
+            payload: data.extra || null,
+          });
+        }
+      } catch (err) {
+        console.error("Error parsing SSE event:", err);
+      }
+    };
+
+    return () => {
+      unsub();
+      eventSource.close();
+    };
+  }, []);
 
   const nodeStatuses = useMemo(
     () => projectNodeStatuses(events, nodes.map((n) => n.id)),
@@ -237,6 +277,91 @@ export default function ControlPlanePage() {
     },
     [reactFlowInstance, setNodes, isGraphLocked],
   );
+
+  const handleAddNode = useCallback(
+    (nodeType: string, label: string) => {
+      if (isGraphLocked) return;
+      setNodes((nds) => {
+        const lastNode = nds[nds.length - 1];
+        const newY = lastNode ? lastNode.position.y + 84 : 100;
+        const newNode: Node = {
+          id: `${nodeType}-${Date.now()}`,
+          type: "custom",
+          position: { x: NODE_X, y: newY },
+          data: { label, nodeType, status: "pending" },
+        };
+        return nds.concat(newNode);
+      });
+    },
+    [isGraphLocked, setNodes],
+  );
+
+  // Dynamic vertical resizer for bottom panel (Run Console, Step Timeline & Review Panels)
+  const [bottomHeight, setBottomHeight] = useState(280);
+  const [consoleWidth, setConsoleWidth] = useState(350);
+  const [reviewWidth, setReviewWidth] = useState(350);
+
+  const handleMouseDownResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = bottomHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = startY - moveEvent.clientY;
+      const newHeight = Math.min(Math.max(startHeight + deltaY, 140), 650);
+      setBottomHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
+
+  const handleConsoleResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = consoleWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = startWidth + deltaX;
+      const maxWidth = document.body.clientWidth - reviewWidth - 300;
+      setConsoleWidth(Math.min(Math.max(newWidth, 200), maxWidth));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
+
+  const handleReviewResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = reviewWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      const newWidth = startWidth + deltaX;
+      const maxWidth = document.body.clientWidth - consoleWidth - 300;
+      setReviewWidth(Math.min(Math.max(newWidth, 250), maxWidth));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
 
   const updateNodeData = (id: string, key: string, value: string) => {
     setNodes((nds) =>
@@ -333,7 +458,11 @@ export default function ControlPlanePage() {
       )}
 
       <div className="flex min-h-0 flex-[1.6]">
-        <NodeLibrary locked={isGraphLocked} onDragStart={onDragStart} />
+        <NodeLibrary
+          locked={isGraphLocked}
+          onDragStart={onDragStart}
+          onAddNode={handleAddNode}
+        />
         <WorkflowCanvas
           nodes={nodesWithStatus}
           edges={edges}
@@ -352,34 +481,75 @@ export default function ControlPlanePage() {
         />
       </div>
 
-      <div className="flex h-72 shrink-0 border-t border-slate-300 bg-white">
-        <RunConsole
-          lines={consoleLines}
-          runStatus={runStatus}
-          onCancel={handleCancel}
-        />
-        <RunTimeline steps={timelineSteps} />
-        {pauseReason === "code_review" ? (
-          <CodeReviewPanel
-            key={`code-${planRevision}`}
-            isOpen={isPaused}
-            summary={codeChangesSummary}
-            downloadUrl={downloadUrl}
-            onApprove={approveCode}
-            onRequestChanges={requestCodeChanges}
-            isBusy={isBusy}
+      {/* Resizable Bottom Control Panel (Run Console, Step Timeline & Review Panels) */}
+      <div
+        style={{ height: `${bottomHeight}px` }}
+        className="relative flex shrink-0 border-t border-slate-300 bg-white shadow-lg"
+      >
+        {/* Top Resize Drag Handle */}
+        <div
+          onMouseDown={handleMouseDownResize}
+          className="absolute -top-2 inset-x-0 h-4 cursor-ns-resize z-30 group flex items-center justify-center transition-colors"
+          title="Drag vertically to resize console and review panels"
+        >
+          <div className="h-1.5 w-16 rounded-full bg-slate-300 group-hover:bg-sky-500 group-hover:w-24 transition-all shadow-sm" />
+        </div>
+
+        <div style={{ width: consoleWidth }} className="shrink-0 flex h-full">
+          <RunConsole
+            lines={consoleLines}
+            runStatus={runStatus}
+            onCancel={handleCancel}
           />
-        ) : (
-          <PlanReviewPanel
-            key={`plan-${planRevision}`}
-            isOpen={isPaused && pauseReason === "plan_review"}
-            plan={currentPlan}
-            planRevision={planRevision}
-            onApprove={approvePlan}
-            onSendFeedback={sendPlanFeedback}
-            isBusy={isBusy}
-          />
-        )}
+        </div>
+
+        {/* Left Resize Drag Handle (Console) */}
+        <div
+          onMouseDown={handleConsoleResize}
+          className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
+          style={{ left: consoleWidth - 4, width: '8px' }}
+          title="Drag horizontally to resize console"
+        >
+          <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
+        </div>
+
+        <div className="flex-1 min-w-[300px] flex h-full overflow-hidden">
+          <RunTimeline steps={timelineSteps} />
+        </div>
+
+        {/* Right Resize Drag Handle (Review) */}
+        <div
+          onMouseDown={handleReviewResize}
+          className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
+          style={{ right: reviewWidth - 4, width: '8px' }}
+          title="Drag horizontally to resize review panel"
+        >
+          <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
+        </div>
+
+        <div style={{ width: reviewWidth }} className="shrink-0 flex h-full">
+          {pauseReason === "code_review" ? (
+            <CodeReviewPanel
+              key={`code-${planRevision}`}
+              isOpen={isPaused}
+              summary={codeChangesSummary}
+              downloadUrl={downloadUrl}
+              onApprove={approveCode}
+              onRequestChanges={requestCodeChanges}
+              isBusy={isBusy}
+            />
+          ) : (
+            <PlanReviewPanel
+              key={`plan-${planRevision}`}
+              isOpen={isPaused && pauseReason === "plan_review"}
+              plan={currentPlan}
+              planRevision={planRevision}
+              onApprove={approvePlan}
+              onSendFeedback={sendPlanFeedback}
+              isBusy={isBusy}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
