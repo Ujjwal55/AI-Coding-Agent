@@ -76,15 +76,17 @@ export default function NodeInspector({
             {fields.includes("model") && (
               <Field label="Model">
                 <select
-                  value={String(selectedNode.data.model || "claude-3-5-sonnet")}
+                  value={String(selectedNode.data.model || "gemini-2.5-flash")}
                   onChange={(e) =>
                     onUpdateData(selectedNode.id, "model", e.target.value)
                   }
                   className="w-full rounded border border-slate-300 p-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                  <option value="o1-mini">o1-mini</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (recommended)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                  <option value="llama3-70b-8192">Llama 3 70B (Groq)</option>
+                  <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
                 </select>
               </Field>
             )}

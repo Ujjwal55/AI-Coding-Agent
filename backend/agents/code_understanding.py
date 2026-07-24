@@ -3,7 +3,7 @@ import glob
 from typing import Dict, Any, List
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from agents.llm import get_llm
+from agents.llm import get_llm, normalize_llm_content
 from orchestrator.state import GraphState
 
 async def code_understanding_node(state: GraphState) -> Dict[str, Any]:
@@ -99,14 +99,14 @@ Keep your analysis concise but thorough. This summary will be used by another AI
     
     try:
         config = state.get("_current_node_config", {})
-        model_name = config.get("model", "gemini-1.5-pro")
+        model_name = config.get("model", "gemini-2.5-flash")
         llm = get_llm(model_name)
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_prompt)
         ]
         response = await llm.ainvoke(messages)
-        return {'code_summary': response.content}
+        return {'code_summary': normalize_llm_content(response.content)}
     except Exception as e:
         basic_summary = f"Codebase structure:\n{tree_string}\n\nImportant files found:\n{[os.path.relpath(p, workspace_path) for p in prioritized_files[:15]]}"
         return {'code_summary': f"LLM analysis failed. Basic structure:\n{basic_summary}"}

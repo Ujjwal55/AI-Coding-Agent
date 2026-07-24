@@ -1,6 +1,6 @@
 from typing import Dict, Any
 from orchestrator.state import GraphState
-from agents.llm import get_llm
+from agents.llm import get_llm, normalize_llm_content
 from langchain_core.messages import SystemMessage, HumanMessage
 
 async def criteria_node(state: GraphState) -> Dict[str, Any]:
@@ -11,7 +11,7 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
         return {"success_criteria": state["success_criteria"]}
         
     objective = state.get("objective", "Unknown objective")
-    model_name = config.get("model", "gemini-1.5-pro")
+    model_name = config.get("model", "gemini-2.5-flash")
     instructions = config.get("instructions", "You are an expert engineer. Generate 3 concise success criteria for the objective. Output them as a simple list.")
     
     llm = get_llm(model_name)
@@ -22,8 +22,9 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
             HumanMessage(content=f"Objective: {objective}")
         ])
         
+        content = normalize_llm_content(response.content)
         # Split by newlines and clean up
-        generated_criteria = [c.strip("- *1234567890.") for c in response.content.split("\n") if c.strip()]
+        generated_criteria = [c.strip("- *1234567890.") for c in content.split("\n") if c.strip()]
         
         if not generated_criteria:
             raise ValueError("No criteria generated")
