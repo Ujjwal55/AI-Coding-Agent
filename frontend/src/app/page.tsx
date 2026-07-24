@@ -185,8 +185,8 @@ export default function ControlPlanePage() {
         if (data.type === "node_status") {
           const eventType =
             data.status === "in_progress" ? "node_started" :
-            data.status === "completed" ? "node_completed" :
-            data.status === "failed" ? "error" : "node_completed";
+              data.status === "completed" ? "node_completed" :
+                data.status === "failed" ? "error" : "node_completed";
 
           eventsPort.append({
             runId: null,

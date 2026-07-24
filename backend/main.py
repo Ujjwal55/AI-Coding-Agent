@@ -5,10 +5,10 @@ from api.upload import router as upload_router
 from database.core import engine, Base
 import asyncio
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(find_dotenv(usecwd=True))
+load_dotenv()
 
 from alembic.config import Config
 from alembic import command
