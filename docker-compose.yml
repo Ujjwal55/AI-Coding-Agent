@@ -1,14 +1,48 @@
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: ai_loop_db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ailoop
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ailoop"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: ai_loop_backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./workflow.db
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ailoop
       - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend:/app
+    develop:
+      watch:
+        - action: sync
+          path: ./backend
+          target: /app
+          ignore:
+            - ./backend/__pycache__
+            - ./backend/*.db
+        - action: rebuild
+          path: ./backend/requirements.txt
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -16,10 +50,29 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: ai_loop_frontend
+    command: npm run dev
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend
+          target: /app
+          ignore:
+            - ./frontend/.next
+            - ./frontend/node_modules
+        - action: rebuild
+          path: ./frontend/package.json
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  postgres_data:

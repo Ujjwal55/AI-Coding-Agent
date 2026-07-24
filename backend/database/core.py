@@ -4,7 +4,7 @@ import os
 
 # Default to a local sqlite file for quick dev if POSTGRES_URL isn't set.
 # The user's spec asks for Postgres, so they should provide it via env in prod/docker.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./workflow.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/ailoop")
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
