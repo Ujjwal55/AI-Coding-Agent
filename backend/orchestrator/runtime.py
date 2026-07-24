@@ -3,15 +3,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models.workflow import WorkflowVersion, WorkflowRun
 from langgraph.checkpoint.memory import MemorySaver
-from utils.logger import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Global in-memory checkpointer for the hackathon MVP
 memory_saver = MemorySaver()
 
-async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initial_state: dict = None):
-    logger.info("Executing workflow runtime", extra={"version_id": version_id, "run_id": run_id})
+async def execute_workflow(
+    version_id: str,
+    db: AsyncSession,
+    run_id: str,
+    initial_state: dict = None,
+    workspace_id: str = None,
+):
     v_result = await db.execute(select(WorkflowVersion).where(WorkflowVersion.id == version_id))
     version = v_result.scalar_one_or_none()
     if not version:
@@ -30,6 +35,7 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
         
         config = {"configurable": {"thread_id": run_id}}
         
+        # Build default initial state
         state = initial_state or {
             "objective": "Build the feature",
             "current_attempt": 0,
@@ -37,6 +43,7 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
             "messages": []
         }
         
+        # Determine if we are resuming or starting fresh
         snapshot = compiled_graph.get_state(config)
         if snapshot.next:
             logger.info("Resuming execution from checkpoint", extra={"run_id": run_id, "next_nodes": snapshot.next})
@@ -49,14 +56,34 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
         
         if snapshot.next:
             run.status = "paused"
-            run.state_json = snapshot.values
-            logger.info("Workflow paused at checkpoint gate", extra={"run_id": run_id, "paused_nodes": snapshot.next})
+            # Include pause_reason in the state for the frontend
+            state_values = dict(snapshot.values) if snapshot.values else {}
+
+            # Always derive the pause reason from the node we are about to run.
+            # (Do not trust a possibly-stale pause_reason left in the state.)
+            next_nodes = list(snapshot.next) if snapshot.next else []
+            nodes_by_id = {n["id"]: n for n in version.graph_json.get("nodes", [])}
+            pause_reason = None
+            for next_node_id in next_nodes:
+                node_type = nodes_by_id.get(next_node_id, {}).get("data", {}).get("nodeType", "")
+                if node_type in ("plan_review", "executor"):
+                    pause_reason = "plan_review"
+                    break
+                elif node_type == "human_gate":
+                    pause_reason = "code_review"
+                    break
+                elif node_type in ("criteria", "planner"):
+                    pause_reason = "criteria_review"
+                    break
+
+            state_values["pause_reason"] = pause_reason
+            run.state_json = _make_serializable(state_values)
         else:
             run.status = "completed"
-            run.state_json = final_state
-            logger.info("Workflow execution completed successfully", extra={"run_id": run_id})
+            run.state_json = _make_serializable(final_state)
         
     except Exception as e:
+        logger.error(f"Workflow execution failed: {e}", exc_info=True)
         run.status = "failed"
         run.state_json = {"error": str(e)}
         logger.critical("Workflow execution failed with exception", extra={"run_id": run_id, "error": str(e)}, exc_info=True)
@@ -64,3 +91,23 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
     await db.commit()
     await db.refresh(run)
     return run
+
+
+def _make_serializable(state: dict) -> dict:
+    """Convert state to JSON-serializable dict, handling LangChain message objects."""
+    result = {}
+    for key, value in state.items():
+        if key.startswith("_"):
+            continue  # Skip internal keys like _current_node_config
+        try:
+            # Test if it's JSON serializable
+            import json
+            json.dumps(value)
+            result[key] = value
+        except (TypeError, ValueError):
+            # Convert non-serializable objects to string representation
+            if isinstance(value, list):
+                result[key] = [str(item) for item in value]
+            else:
+                result[key] = str(value)
+    return result

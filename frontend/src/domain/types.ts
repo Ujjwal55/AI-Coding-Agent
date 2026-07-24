@@ -6,6 +6,20 @@ export type RunStatus = "idle" | "pending" | "running" | "paused" | "completed" 
 
 export type NodeRunStatus = "pending" | "running" | "completed" | "failed" | "waiting";
 
+/** Which human gate the run is paused at (mirrors backend state_json.pause_reason). */
+export type PauseReason =
+  | "criteria_review"
+  | "plan_review"
+  | "code_review"
+  | null;
+
+/** A file entry from the uploaded workspace tree (backend /api/upload). */
+export interface FileNode {
+  path: string;
+  is_dir: boolean;
+  size?: number;
+}
+
 /** Matches backend WorkflowEvent.event_type values (+ UI-only prepared). */
 export type UiEventType =
   | "prepared"
@@ -32,6 +46,12 @@ export interface MissionState {
   repoPath: string | null;
   attachments: string[];
   prepared: boolean;
+  /** Backend workspace id returned after uploading & unzipping the repo. */
+  workspaceId: string | null;
+  /** File tree of the uploaded workspace. */
+  fileTree: FileNode[];
+  /** True while a folder is being zipped + uploaded. */
+  uploading: boolean;
 }
 
 export interface RunIntent {

@@ -9,26 +9,61 @@ async def decision_node(state: GraphState) -> Dict[str, Any]:
     logger.debug("Executing decision_node pass-through")
     return {}
 
+
+async def plan_review_node(state: GraphState) -> Dict[str, Any]:
+    """Pass-through node representing the Plan Review gate.
+
+    The graph interrupts *before* this node, so by the time it runs the human
+    has already resumed with either an approval (plan_approved=True) or written
+    feedback (plan_feedback set). Routing is handled by ``should_replan``.
+    """
+    return {}
+
+
+def should_replan(state: GraphState) -> str:
+    """Plan Review routing. Deterministically decide replan vs. execute.
+
+    - Human approved the plan          -> "executor"
+    - Feedback given & budget remains  -> "planner" (regenerate the plan)
+    - Revision budget exhausted        -> "executor" (bounded: stop revising)
+    """
+    if state.get("plan_approved"):
+        return "executor"
+
+    config = state.get("_current_node_config", {})
+    max_plan_revisions = int(
+        config.get("maxPlanRevisions", state.get("max_plan_revisions", 3) or 3)
+    )
+    if state.get("plan_revision", 0) >= max_plan_revisions:
+        return "executor"
+    return "planner"
+
+
 def should_human_approve(state: GraphState) -> str:
-    """Decision Node logic. Evaluates validation output to determine next route."""
+    """Decision Node logic. Evaluates validation output to determine next route.
+
+    - Validation FAIL & retries remain -> "planner" (retry the loop)
+    - Validation FAIL & budget spent    -> "end" (safe stop)
+    - Validation PASS                    -> "human_approval" (code review gate)
+    """
     config = state.get("_current_node_config", {})
     max_retries = int(config.get("maxRetries", 3))
-    status = state.get("validation_status", "UNKNOWN")
-    attempt = state.get("current_attempt", 0)
-    score = state.get("confidence_score", 1.0)
-    
-    logger.info("Evaluating decision node routing", extra={"validation_status": status, "attempt": attempt, "max_retries": max_retries, "confidence_score": score})
-    
-    if status == "FAIL":
-        if attempt >= max_retries:
-            logger.info("Decision route -> 'end' (Max retries reached)", extra={"attempt": attempt})
-            return "end"
-        logger.info("Decision route -> 'planner' (Retrying execution)", extra={"attempt": attempt})
-        return "planner"
-    
-    if score < 0.8:
-        logger.info("Decision route -> 'human_approval' (Low confidence score)", extra={"confidence_score": score})
-        return "human_approval"
-    
-    logger.info("Decision route -> 'end' (Execution succeeded)")
-    return "end"
+
+    if state.get("validation_status") == "FAIL":
+        if state.get("current_attempt", 0) >= max_retries:
+            return "end"  # Safe Stop
+        return "planner"  # Retry
+
+    # Validation passed -> always route through the human code-review gate.
+    return "human_approval"
+
+
+def should_finish_after_review(state: GraphState) -> str:
+    """Human Gate (code review) routing.
+
+    - Human approved the code changes -> "end"
+    - Human requested changes         -> "planner" (loop back with feedback)
+    """
+    if state.get("human_approved"):
+        return "end"
+    return "planner"

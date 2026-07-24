@@ -1,5 +1,10 @@
-import type { WorkflowApiPort } from "@/ports/WorkflowApiPort";
 import type {
+  RunOptions,
+  ResumeOptions,
+  WorkflowApiPort,
+} from "@/ports/WorkflowApiPort";
+import type {
+  FileNode,
   WorkflowRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
@@ -48,26 +53,51 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
     return parseJson<WorkflowVersionRecord>(res);
   }
 
-  async run(versionId: string): Promise<WorkflowRunRecord> {
-    const res = await fetch(
-      `${this.baseUrl}/api/workflows/${versionId}/run`,
-      { method: "POST" },
-    );
+  async uploadRepo(
+    zip: Blob,
+    fileName = "workspace.zip",
+  ): Promise<{ workspace_id: string; file_tree: FileNode[] }> {
+    const form = new FormData();
+    // Backend requires the uploaded filename to end with .zip
+    form.append("file", zip, fileName.endsWith(".zip") ? fileName : `${fileName}.zip`);
+    const res = await fetch(`${this.baseUrl}/api/upload`, {
+      method: "POST",
+      body: form,
+    });
+    return parseJson<{ workspace_id: string; file_tree: FileNode[] }>(res);
+  }
+
+  downloadUrl(workspaceId: string): string {
+    return `${this.baseUrl}/api/workspaces/${workspaceId}/download`;
+  }
+
+  async run(versionId: string, options?: RunOptions): Promise<WorkflowRunRecord> {
+    const res = await fetch(`${this.baseUrl}/api/workflows/${versionId}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        objective: options?.objective ?? null,
+        workspace_id: options?.workspaceId ?? null,
+        success_criteria: options?.successCriteria ?? null,
+        max_plan_revisions: options?.maxPlanRevisions ?? null,
+      }),
+    });
     return parseJson<WorkflowRunRecord>(res);
   }
 
   async resume(
     runId: string,
-    stateUpdates?: Record<string, unknown>,
+    options?: ResumeOptions,
   ): Promise<WorkflowRunRecord> {
-    const res = await fetch(
-      `${this.baseUrl}/api/workflows/${runId}/resume`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state_updates: stateUpdates ?? null }),
-      },
-    );
+    const res = await fetch(`${this.baseUrl}/api/workflows/${runId}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: options?.action ?? null,
+        feedback: options?.feedback ?? null,
+        state_updates: options?.stateUpdates ?? null,
+      }),
+    });
     return parseJson<WorkflowRunRecord>(res);
   }
 }

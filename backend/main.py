@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.workflow import router as workflow_router
+from api.upload import router as upload_router
 from database.core import engine, Base
 import asyncio
 from contextlib import asynccontextmanager
@@ -53,6 +54,7 @@ app.add_middleware(
 )
 
 app.include_router(workflow_router, prefix="/api/workflows", tags=["workflows"])
+app.include_router(upload_router, prefix="/api", tags=["upload"])
 
 @app.get("/health")
 async def health_check():

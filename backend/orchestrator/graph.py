@@ -3,15 +3,23 @@ from langgraph.graph import StateGraph, END
 from orchestrator.state import GraphState
 from orchestrator.nodes import planner_node, executor_node, validator_node, human_approval_node
 from agents.success_criteria import criteria_node
-from agents.decision import should_human_approve, decision_node
-from utils.logger import get_logger
-from utils.broadcaster import broadcast_event
+from agents.code_understanding import code_understanding_node
+from agents.decision import (
+    should_human_approve,
+    should_replan,
+    should_finish_after_review,
+    decision_node,
+    plan_review_node,
+)
+import logging
 
 logger = get_logger(__name__)
 
 NODE_MAP = {
     'criteria': criteria_node,
+    'code_understanding': code_understanding_node,
     'planner': planner_node,
+    'plan_review': plan_review_node,
     'executor': executor_node,
     'validator': validator_node,
     'decision': decision_node,
@@ -98,44 +106,73 @@ def build_dynamic_graph(graph_json: dict):
     # Helper to find node by nodeType
     def find_node_by_type(n_type):
         return next((n["id"] for n in nodes if n.get("data", {}).get("nodeType") == n_type), None)
-    
-    processed_decision_nodes = set()
-    
+
+    planner_id = find_node_by_type("planner")
+    executor_id = find_node_by_type("executor")
+    human_gate_id = find_node_by_type("human_gate")
+
+    # Node types whose outgoing edges are replaced by deterministic conditional
+    # routers. We only need one edge per such node to trigger wiring, so we
+    # remember which we've already processed.
+    processed_conditional_nodes = set()
+
     # 2. Add edges
     for edge in edges:
         source = edge["source"]
         target = edge["target"]
-        
+
         # Map UI "end" node to LangGraph END
         target_node = next((n for n in nodes if n["id"] == target), None)
         if target_node and target_node.get("data", {}).get("nodeType") == "end":
             target = END
-            
+
         source_node = next((n for n in nodes if n["id"] == source), None)
         if not source_node:
             continue
-            
+
         source_type = source_node.get("data", {}).get("nodeType")
-        
+
         if source_type == "decision":
-            if source in processed_decision_nodes:
+            if source in processed_conditional_nodes:
                 continue
-            processed_decision_nodes.add(source)
-            
-            # Wire up dynamic conditional edges for the decision node
-            planner_id = find_node_by_type("planner")
-            human_gate_id = find_node_by_type("human_gate")
-            
+            processed_conditional_nodes.add(source)
+            # Validation outcome -> retry / code review / safe stop
             workflow.add_conditional_edges(
                 source,
                 should_human_approve,
                 {
-                    "planner": planner_id or target, # Fallback to whatever was explicitly targeted
+                    "planner": planner_id or target,
                     "human_approval": human_gate_id or target,
-                    "end": END
-                }
+                    "end": END,
+                },
             )
-        else: 
+        elif source_type == "plan_review":
+            if source in processed_conditional_nodes:
+                continue
+            processed_conditional_nodes.add(source)
+            # Plan approved -> execute; feedback -> regenerate plan (bounded)
+            workflow.add_conditional_edges(
+                source,
+                should_replan,
+                {
+                    "planner": planner_id or target,
+                    "executor": executor_id or target,
+                },
+            )
+        elif source_type == "human_gate":
+            if source in processed_conditional_nodes:
+                continue
+            processed_conditional_nodes.add(source)
+            # Code approved -> finish; changes requested -> loop back to planner
+            workflow.add_conditional_edges(
+                source,
+                should_finish_after_review,
+                {
+                    "planner": planner_id or target,
+                    "end": END,
+                },
+            )
+        else:
             workflow.add_edge(source, target)
 
     # 3. Entry point
@@ -145,7 +182,10 @@ def build_dynamic_graph(graph_json: dict):
         workflow.set_entry_point(entry_nodes[0])
     elif valid_node_ids:
         workflow.set_entry_point(list(valid_node_ids)[0])
-        
-    # We interrupt before any human_gate node or planner node (to allow for hybrid criteria editing)
-    interrupts = [n["id"] for n in nodes if n.get("data", {}).get("nodeType") in ["human_gate", "planner"]]
+
+    # Interrupt before the two human gates so the graph pauses for review:
+    #   - plan_review: after the planner has produced a plan, before executing
+    #   - human_gate:  after code changes, for code review
+    interrupt_types = ["plan_review", "human_gate"]
+    interrupts = [n["id"] for n in nodes if n.get("data", {}).get("nodeType") in interrupt_types]
     return workflow.compile(interrupt_before=interrupts if interrupts else None)

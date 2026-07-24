@@ -1,29 +1,35 @@
 "use client";
 
+import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FileUp, FolderGit2, Play, Wrench } from "lucide-react";
+import { FolderGit2, Loader2, Play, Wrench } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
   onObjectiveChange: (value: string) => void;
-  onAttachFile: () => void;
-  onSelectRepo: () => void;
+  onUploadFolder: (files: FileList) => void;
   onPrepare: () => void;
   onRun: () => void;
 }
+
+// Enables selecting a whole directory in the file picker (Chromium/WebKit).
+const directoryProps = {
+  webkitdirectory: "",
+  directory: "",
+} as unknown as Record<string, string>;
 
 export default function MissionBar({
   mission,
   runStatus,
   isBusy,
   onObjectiveChange,
-  onAttachFile,
-  onSelectRepo,
+  onUploadFolder,
   onPrepare,
   onRun,
 }: MissionBarProps) {
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
 
   return (
@@ -33,7 +39,7 @@ export default function MissionBar({
           AI Coding Control Plane
         </h1>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          L1 Mission Layer
+          Spec-Driven Loop
         </span>
       </div>
 
@@ -42,26 +48,36 @@ export default function MissionBar({
           type="text"
           value={mission.objective}
           onChange={(e) => onObjectiveChange(e.target.value)}
-          placeholder="What do you want to build?"
-          className="min-w-[220px] flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Describe the change you want (requirements)…"
+          className="min-w-[240px] flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          {...directoryProps}
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              onUploadFolder(e.target.files);
+            }
+            e.target.value = "";
+          }}
         />
 
         <button
           type="button"
-          onClick={onAttachFile}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          onClick={() => folderInputRef.current?.click()}
+          disabled={mission.uploading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
-          <FileUp className="h-4 w-4" />
-          Attach file
-        </button>
-
-        <button
-          type="button"
-          onClick={onSelectRepo}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <FolderGit2 className="h-4 w-4" />
-          Select repo
+          {mission.uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <FolderGit2 className="h-4 w-4" />
+          )}
+          {mission.uploading ? "Uploading…" : "Upload repo folder"}
         </button>
 
         <button
@@ -88,24 +104,14 @@ export default function MissionBar({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Chip
           active={Boolean(mission.objective.trim())}
-          label={
-            mission.objective.trim() ? "objective set" : "objective empty"
-          }
+          label={mission.objective.trim() ? "objective set" : "objective empty"}
         />
         <Chip
-          active={Boolean(mission.repoPath)}
+          active={Boolean(mission.workspaceId)}
           label={
-            mission.repoPath
-              ? `repo: ${mission.repoPath}`
-              : "repo: not selected"
-          }
-        />
-        <Chip
-          active={mission.attachments.length > 0}
-          label={
-            mission.attachments.length > 0
-              ? `${mission.attachments.length} attachment${mission.attachments.length === 1 ? "" : "s"}`
-              : "no attachments"
+            mission.workspaceId
+              ? `repo: ${mission.fileTree.filter((f) => !f.is_dir).length} files`
+              : "repo: not uploaded"
           }
         />
         <Chip
