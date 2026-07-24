@@ -131,7 +131,9 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
   }
 
   async fetchMetadata(): Promise<Record<string, any>> {
-    const res = await fetch(`${this.baseUrl}/api/workflows/metadata`);
+    const res = await fetch(`${this.baseUrl}/api/workflows/metadata?_t=${Date.now()}`, {
+      cache: "no-store",
+    });
     if (!res.ok) {
       throw new Error(`Failed to fetch metadata: ${res.statusText}`);
     }
