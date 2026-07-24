@@ -1,5 +1,7 @@
 # DTDL Hackathon - Current Architecture & Features
 
+> **STALE.** Prefer the living docs in [`ai-context/`](./ai-context/README.md) (updated 2026-07-25). This file still describes SQLite, mock validators, and the old Decision-centric graph.
+
 This document provides a high-level overview of the current system architecture and the features that have been implemented so far. It is designed to quickly onboard another AI model or developer onto the current state of the codebase.
 
 ## 1. System Architecture
