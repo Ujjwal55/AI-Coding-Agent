@@ -311,10 +311,6 @@ def get_llm(model_name: str):
                 extra={"model": mid, "provider": provider, "error": str(e)[:160]},
             )
 
-    if ENABLE_LOCAL_LLM_FALLBACK:
-        runnables.append(RunnableLambda(invoke_local_fallback))
-        logger.info("Local Qwen fallback enabled via ENABLE_LOCAL_LLM_FALLBACK")
-
     if not runnables:
         # Fallback to local if allowed or raise sensible error
         logger.warning("No API keys found for Google or Groq LLMs")

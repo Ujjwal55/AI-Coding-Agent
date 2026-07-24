@@ -1,6 +1,7 @@
 "use client";
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
 import {
@@ -15,7 +16,7 @@ import {
 =======
 import { useEffect, useRef, useState } from "react";
 import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
-import { Download, Coins,Upload, FolderGit2, FolderPlus, Loader2, Play, Wrench, Zap } from "lucide-react";
+import { Coins, FolderGit2, FolderPlus, Loader2, Play, Wrench, Zap } from "lucide-react";
 >>>>>>> aniket
 
 interface MissionBarProps {
