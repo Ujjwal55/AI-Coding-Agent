@@ -50,3 +50,7 @@ class GraphState(TypedDict):
     # Dynamic UI Configuration injected by graph compiler
     _current_node_config: Optional[Dict[str, Any]]
 
+    # Token, Model Call, and Cost Tracking Metrics
+    llm_usage: Optional[Dict[str, Any]]
+
+

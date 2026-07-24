@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import type {
+  LlmUsage,
   PauseReason,
   RunStatus,
   WorkflowRunRecord,
@@ -67,6 +68,7 @@ export function useWorkflowRun({
     null,
   );
   const [successCriteria, setSuccessCriteria] = useState<string[]>([]);
+  const [llmUsage, setLlmUsage] = useState<LlmUsage | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -134,11 +136,16 @@ export function useWorkflowRun({
         : [];
       const revision =
         typeof state.plan_revision === "number" ? state.plan_revision : 0;
+      const usage =
+        typeof state.llm_usage === "object" && state.llm_usage !== null
+          ? (state.llm_usage as LlmUsage)
+          : null;
 
       setCurrentPlan(plan);
       setCodeChangesSummary(summary);
       setSuccessCriteria(criteria);
       setPlanRevision(revision);
+      setLlmUsage(usage);
 
       if (runData.status === "paused") {
         const reason = (state.pause_reason as PauseReason) ?? "plan_review";
@@ -186,6 +193,7 @@ export function useWorkflowRun({
       setRunStatus("running");
       setCurrentPlan(null);
       setCodeChangesSummary(null);
+      setLlmUsage(null);
       nodesRef.current = nodes;
       eventsPort.reset();
 
@@ -310,6 +318,7 @@ export function useWorkflowRun({
     planRevision,
     codeChangesSummary,
     successCriteria,
+    llmUsage,
     lastError,
     isBusy,
     isGraphLocked,

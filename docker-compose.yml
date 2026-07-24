@@ -27,6 +27,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
+
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ailoop
       - PYTHONUNBUFFERED=1
@@ -40,6 +41,7 @@ services:
           ignore:
             - ./backend/__pycache__
             - ./backend/*.db
+            - ./backend/models_cache
         - action: rebuild
           path: ./backend/requirements.txt
     depends_on:
