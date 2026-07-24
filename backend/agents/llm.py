@@ -42,9 +42,10 @@ GEMINI_FALLBACK_MODELS = [
     "gemini-flash-latest",
 ]
 
-# Local Qwen is optional; enabled by default for hackathon demos without cloud quota.
-# Set ENABLE_LOCAL_LLM_FALLBACK=false to disable.
-ENABLE_LOCAL_LLM_FALLBACK = os.getenv("ENABLE_LOCAL_LLM_FALLBACK", "true").lower() in (
+# Local Qwen is optional and NOT bundled in Docker images (saves ~1GB+).
+# Install with: pip install -r requirements-local.txt
+# Then set ENABLE_LOCAL_LLM_FALLBACK=true
+ENABLE_LOCAL_LLM_FALLBACK = os.getenv("ENABLE_LOCAL_LLM_FALLBACK", "false").lower() in (
     "1",
     "true",
     "yes",
@@ -147,19 +148,28 @@ def _candidate_chain(primary_id: str) -> List[Tuple[str, str]]:
 
 
 def get_local_fallback_llm():
-    """Optional tiny local model — disabled unless ENABLE_LOCAL_LLM_FALLBACK=true."""
+    """Optional tiny local model — requires requirements-local.txt + ENABLE_LOCAL_LLM_FALLBACK=true."""
     global _local_llm_instance
+    if not ENABLE_LOCAL_LLM_FALLBACK:
+        raise RuntimeError(
+            "Local LLM fallback is disabled. Set ENABLE_LOCAL_LLM_FALLBACK=true "
+            "and install requirements-local.txt to enable it."
+        )
     if _local_llm_instance is not None:
         return _local_llm_instance
 
-    from langchain_community.llms import LlamaCpp
-    from huggingface_hub import hf_hub_download
+    try:
+        from langchain_community.llms import LlamaCpp
+        from huggingface_hub import hf_hub_download
+    except ImportError as e:
+        raise RuntimeError(
+            "Local LLM deps missing. Install with: pip install -r requirements-local.txt"
+        ) from e
 
     logger.warning(
         "Activating local Qwen 0.5B fallback (often low quality for coding)",
         extra={"hint": "Prefer fixing Gemini/Groq keys or model IDs"},
     )
-    print("⚠️  LOCAL FALLBACK (Qwen 0.5B) — only used if ENABLE_LOCAL_LLM_FALLBACK=true")
 
     repo_id = "Qwen/Qwen1.5-0.5B-Chat-GGUF"
     filename = "qwen1_5-0_5b-chat-q4_k_m.gguf"
