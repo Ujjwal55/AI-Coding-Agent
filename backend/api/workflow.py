@@ -96,6 +96,7 @@ async def run_workflow(version_id: str, body: Optional[RunRequest] = None, db: A
         "plan_feedback": None,
         "plan_revision": 0,
         "max_plan_revisions": (body.max_plan_revisions if body and body.max_plan_revisions else 3),
+        "skip_plan_review": False,
         "human_approved": False,
         "pause_reason": None,
     }
@@ -129,12 +130,14 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
     if request.action == "approve_plan":
         # Human approved the implementation plan — let executor proceed
         state_updates["plan_approved"] = True
+        state_updates["skip_plan_review"] = False
         state_updates["pause_reason"] = None
         
     elif request.action == "send_plan_feedback":
-        # Human sent feedback — planner will regenerate
+        # Human sent feedback — planner will regenerate and pause again for review
         state_updates["plan_feedback"] = request.feedback
         state_updates["plan_approved"] = False
+        state_updates["skip_plan_review"] = False
         state_updates["pause_reason"] = None
         
     elif request.action == "approve_code":
@@ -143,10 +146,11 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
         state_updates["pause_reason"] = None
         
     elif request.action == "request_code_changes":
-        # Human wants changes — loop back to planner
+        # Human wants changes — loop back to planner and show plan review again
         state_updates["plan_feedback"] = request.feedback
         state_updates["plan_approved"] = False
         state_updates["human_approved"] = False
+        state_updates["skip_plan_review"] = False
         state_updates["pause_reason"] = None
     
     # Update the LangGraph checkpoint state

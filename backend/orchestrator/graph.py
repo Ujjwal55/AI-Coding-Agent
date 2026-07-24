@@ -8,6 +8,7 @@ from agents.decision import (
     should_human_approve,
     should_replan,
     should_finish_after_review,
+    after_planner_route,
     decision_node,
     plan_review_node,
 )
@@ -111,6 +112,7 @@ def build_dynamic_graph(graph_json: dict):
     planner_id = find_node_by_type("planner")
     executor_id = find_node_by_type("executor")
     human_gate_id = find_node_by_type("human_gate")
+    plan_review_id = find_node_by_type("plan_review")
 
     # Node types whose outgoing edges are replaced by deterministic conditional
     # routers. We only need one edge per such node to trigger wiring, so we
@@ -145,6 +147,20 @@ def build_dynamic_graph(graph_json: dict):
                     "planner": planner_id or target,
                     "human_approval": human_gate_id or target,
                     "end": END,
+                },
+            )
+        elif source_type == "planner":
+            if source in processed_conditional_nodes:
+                continue
+            processed_conditional_nodes.add(source)
+            # First plan / human feedback → plan_review HITL.
+            # Validation-driven retry → skip straight to executor.
+            workflow.add_conditional_edges(
+                source,
+                after_planner_route,
+                {
+                    "plan_review": plan_review_id or target,
+                    "executor": executor_id or target,
                 },
             )
         elif source_type == "plan_review":

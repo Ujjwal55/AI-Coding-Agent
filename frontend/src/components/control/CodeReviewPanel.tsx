@@ -78,6 +78,12 @@ export default function CodeReviewPanel({
               Approve &amp; Finish
             </button>
           </div>
+          {downloadUrl && (
+            <p className="text-[11px] text-slate-500">
+              Approving finishes the run in the isolated workspace — it does not
+              open a GitHub PR. Use Download to get the ZIP.
+            </p>
+          )}
         </div>
       )}
     </section>

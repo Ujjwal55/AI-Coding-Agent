@@ -71,6 +71,26 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
     return `${this.baseUrl}/api/workspaces/${workspaceId}/download`;
   }
 
+  async getWorkspaceTree(
+    workspaceId: string,
+  ): Promise<{ file_tree: FileNode[] }> {
+    const res = await fetch(
+      `${this.baseUrl}/api/workspaces/${workspaceId}/tree`,
+    );
+    return parseJson<{ file_tree: FileNode[] }>(res);
+  }
+
+  async getWorkspaceFile(workspaceId: string, path: string): Promise<string> {
+    const res = await fetch(
+      `${this.baseUrl}/api/workspaces/${workspaceId}/file?path=${encodeURIComponent(path)}`,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    }
+    return res.text();
+  }
+
   async run(versionId: string, options?: RunOptions): Promise<WorkflowRunRecord> {
     const res = await fetch(`${this.baseUrl}/api/workflows/${versionId}/run`, {
       method: "POST",

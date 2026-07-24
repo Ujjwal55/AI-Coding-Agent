@@ -5,8 +5,19 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 async def decision_node(state: GraphState) -> Dict[str, Any]:
-    """Pass-through node representing the Decision step in the graph."""
+    """Pass-through that also tags validation-retry loops to skip plan review HITL."""
     logger.debug("Executing decision_node pass-through")
+    if state.get("validation_status") == "FAIL":
+        config = state.get("_current_node_config", {})
+        max_retries = int(config.get("maxRetries", 3))
+        if state.get("current_attempt", 0) < max_retries:
+            # Human already approved a plan earlier; on validation retry, replan +
+            # execute without asking them to approve the plan again.
+            return {
+                "skip_plan_review": True,
+                "plan_feedback": state.get("feedback")
+                or "Validation failed — revise the plan and implementation.",
+            }
     return {}
 
 
@@ -18,6 +29,13 @@ async def plan_review_node(state: GraphState) -> Dict[str, Any]:
     feedback (plan_feedback set). Routing is handled by ``should_replan``.
     """
     return {}
+
+
+def after_planner_route(state: GraphState) -> str:
+    """After planning: skip HITL plan review on validation-driven retries."""
+    if state.get("skip_plan_review"):
+        return "executor"
+    return "plan_review"
 
 
 def should_replan(state: GraphState) -> str:
