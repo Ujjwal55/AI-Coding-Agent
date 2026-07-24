@@ -1,461 +1,337 @@
 "use client";
-import React, { useState, useCallback, useRef } from 'react';
-import {
-  ReactFlow,
-  MiniMap,
-  Controls,
-  Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  Node,
-  Edge,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import CustomNode from '@/components/CustomNode';
-import { nodeToJSON, jsonToNode } from '@/lib/nodeSerialization'; // adjust path to wherever you put nodeSerialization.ts
 
-const nodeTypes = {
-  custom: CustomNode,
-};
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  type Connection,
+  type Edge,
+  type Node,
+  type ReactFlowInstance,
+} from "@xyflow/react";
+import { HttpWorkflowAdapter } from "@/adapters/http/HttpWorkflowAdapter";
+import { MockRunEventsAdapter } from "@/adapters/mock/MockRunEventsAdapter";
+import { usePrepareMission } from "@/application/usePrepareMission";
+import { useWorkflowRun } from "@/application/useWorkflowRun";
+import {
+  projectConsoleLines,
+  projectNodeExecution,
+  projectNodeStatuses,
+  projectTimeline,
+} from "@/application/projectRunView";
+import type { MissionState, UiEvent } from "@/domain/types";
+import MissionBar from "@/components/mission/MissionBar";
+import NodeLibrary from "@/components/workflow/NodeLibrary";
+import WorkflowCanvas from "@/components/workflow/WorkflowCanvas";
+import NodeInspector from "@/components/workflow/NodeInspector";
+import RunConsole from "@/components/control/RunConsole";
+import RunTimeline from "@/components/control/RunTimeline";
+import HumanGatePanel from "@/components/control/HumanGatePanel";
 
 const initialNodes: Node[] = [
-  { id: 'objective', position: { x: 250, y: 50 }, data: { label: 'Feature Request', nodeType: 'objective' }, type: 'custom' },
-  { id: 'criteria', position: { x: 250, y: 150 }, data: { label: 'Define Criteria', nodeType: 'criteria' }, type: 'custom' },
-  { id: 'planner', position: { x: 250, y: 250 }, data: { label: 'Create Plan', nodeType: 'planner' }, type: 'custom' },
-  { id: 'executor', position: { x: 250, y: 350 }, data: { label: 'Write Code', nodeType: 'executor' }, type: 'custom' },
-  { id: 'validator', position: { x: 250, y: 450 }, data: { label: 'Run Tests', nodeType: 'validator' }, type: 'custom' },
-  { id: 'decision', position: { x: 250, y: 550 }, data: { label: 'Evaluate', nodeType: 'decision' }, type: 'custom' },
-  { id: 'human_approval', position: { x: 250, y: 650 }, data: { label: 'Review PR', nodeType: 'human_gate' }, type: 'custom' },
-  { id: 'end', position: { x: 250, y: 750 }, data: { label: 'Merged', nodeType: 'end' }, type: 'custom' },
+  {
+    id: "objective",
+    position: { x: 250, y: 50 },
+    data: { label: "Feature Request", nodeType: "objective", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "criteria",
+    position: { x: 250, y: 150 },
+    data: { label: "Define Criteria", nodeType: "criteria", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "planner",
+    position: { x: 250, y: 250 },
+    data: { label: "Create Plan", nodeType: "planner", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "executor",
+    position: { x: 250, y: 350 },
+    data: { label: "Write Code", nodeType: "executor", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "validator",
+    position: { x: 250, y: 450 },
+    data: { label: "Run Tests", nodeType: "validator", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "decision",
+    position: { x: 250, y: 550 },
+    data: { label: "Evaluate", nodeType: "decision", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "human_approval",
+    position: { x: 250, y: 650 },
+    data: { label: "Review PR", nodeType: "human_gate", status: "pending" },
+    type: "custom",
+  },
+  {
+    id: "end",
+    position: { x: 250, y: 750 },
+    data: { label: "Merged", nodeType: "end", status: "pending" },
+    type: "custom",
+  },
 ];
 
 const initialEdges: Edge[] = [
-  { id: 'e1-2', source: 'objective', target: 'criteria' },
-  { id: 'e2-3', source: 'criteria', target: 'planner' },
-  { id: 'e3-4', source: 'planner', target: 'executor' },
-  { id: 'e4-5', source: 'executor', target: 'validator' },
-  { id: 'e5-6', source: 'validator', target: 'decision' },
-  { id: 'e6-7', source: 'decision', target: 'human_approval' },
-  { id: 'e6-3', source: 'decision', target: 'planner', type: 'smoothstep' },
-  { id: 'e7-8', source: 'human_approval', target: 'end' },
+  { id: "e1-2", source: "objective", target: "criteria" },
+  { id: "e2-3", source: "criteria", target: "planner" },
+  { id: "e3-4", source: "planner", target: "executor" },
+  { id: "e4-5", source: "executor", target: "validator" },
+  { id: "e5-6", source: "validator", target: "decision" },
+  { id: "e6-7", source: "decision", target: "human_approval" },
+  {
+    id: "e6-3",
+    source: "decision",
+    target: "planner",
+    type: "smoothstep",
+  },
+  { id: "e7-8", source: "human_approval", target: "end" },
 ];
 
-export default function WorkflowBuilder() {
+/** Composition root: construct adapters once and inject ports. */
+const workflowApi = new HttpWorkflowAdapter();
+const eventsPort = new MockRunEventsAdapter();
+
+export default function ControlPlanePage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [reactFlowInstance, setReactFlowInstance] =
+    useState<ReactFlowInstance | null>(null);
+  const [events, setEvents] = useState<UiEvent[]>([]);
+  const [mission, setMission] = useState<MissionState>({
+    objective: "",
+    repoPath: null,
+    attachments: [],
+    prepared: false,
+  });
+
+  const { prepare } = usePrepareMission(eventsPort);
+  const {
+    runStatus,
+    pausedRunId,
+    editingCriteria,
+    setEditingCriteria,
+    lastError,
+    isBusy,
+    isGraphLocked,
+    startRun,
+    resumeRun,
+    cancelLocal,
+  } = useWorkflowRun({ workflowApi, eventsPort });
+
+  useEffect(() => eventsPort.subscribe(setEvents), []);
+
+  const nodeStatuses = useMemo(
+    () => projectNodeStatuses(events, nodes.map((n) => n.id)),
+    [events, nodes],
+  );
+
+  const nodesWithStatus = useMemo(
+    () =>
+      nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          status: nodeStatuses[node.id] ?? "pending",
+        },
+      })),
+    [nodes, nodeStatuses],
+  );
+
+  const timelineSteps = useMemo(
+    () =>
+      projectTimeline(
+        events,
+        nodes.map((n) => ({
+          id: n.id,
+          label: String(n.data.label || n.id),
+        })),
+      ),
+    [events, nodes],
+  );
+
+  const consoleLines = useMemo(() => projectConsoleLines(events), [events]);
+
+  const selectedNode = nodesWithStatus.find((n) => n.selected) ?? null;
+  const executionView = selectedNode
+    ? projectNodeExecution(events, selectedNode.id)
+    : null;
 
   const onConnect = useCallback(
-    (params: any) => setEdges((eds) => addEdge(params, eds)),
+    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
     [setEdges],
   );
 
-  const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
-
-  const onDragStart = (event: React.DragEvent, nodeType: string, label: string) => {
-    event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, label }));
-    event.dataTransfer.effectAllowed = 'move';
+  const onDragStart = (
+    event: React.DragEvent,
+    nodeType: string,
+    label: string,
+  ) => {
+    event.dataTransfer.setData(
+      "application/reactflow",
+      JSON.stringify({ nodeType, label }),
+    );
+    event.dataTransfer.effectAllowed = "move";
   };
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+    event.dataTransfer.dropEffect = "move";
   }, []);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
+      if (!reactFlowInstance || isGraphLocked) return;
 
-      const typeData = event.dataTransfer.getData('application/reactflow');
-      if (!typeData || !reactFlowInstance) return;
+      const typeData = event.dataTransfer.getData("application/reactflow");
+      if (!typeData) return;
 
-      const { nodeType, label } = JSON.parse(typeData);
+      const { nodeType, label } = JSON.parse(typeData) as {
+        nodeType: string;
+        label: string;
+      };
 
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      const newId = `${nodeType}-${new Date().getTime()}`;
-
-      const newNode = {
-        id: newId,
-        type: 'custom',
+      const newNode: Node = {
+        id: `${nodeType}-${Date.now()}`,
+        type: "custom",
         position,
-        data: { label, nodeType },
+        data: { label, nodeType, status: "pending" },
       };
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [reactFlowInstance, setNodes],
+    [reactFlowInstance, setNodes, isGraphLocked],
   );
-
-  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-  const selectedNode = nodes.find(n => n.selected);
-
-  // Pause/Resume state
-  const [pausedRunId, setPausedRunId] = useState<string | null>(null);
-  const [editingCriteria, setEditingCriteria] = useState<string>('');
 
   const updateNodeData = (id: string, key: string, value: string) => {
     setNodes((nds) =>
       nds.map((n) =>
-        n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n
-      )
+        n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n,
+      ),
     );
   };
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-  // ---------- Export / Import (exercises nodeToJSON / jsonToNode) ----------
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-
-  const handleExport = () => {
-    const payload = {
-      nodes: nodes.map(nodeToJSON),
-      edges, // edges don't need custom (de)serialization today, passed through as-is
-    };
-
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `workflow-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportClick = () => {
-    setImportError(null);
-    fileInputRef.current?.click();
-  };
-
-  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    // reset the input so selecting the same file again still fires onChange
-    event.target.value = "";
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-
-      if (!Array.isArray(parsed.nodes)) {
-        throw new Error("Invalid file: expected a `nodes` array");
-      }
-
-      const importedNodes = parsed.nodes.map(jsonToNode);
-      const importedEdges = Array.isArray(parsed.edges) ? parsed.edges : [];
-
-      setNodes(importedNodes);
-      setEdges(importedEdges);
-      setImportError(null);
-    } catch (err: any) {
-      console.error("Import failed:", err);
-      setImportError(err.message || "Failed to import workflow file");
+  const handlePrepare = () => {
+    const result = prepare(mission, nodes);
+    if (!result.ok) {
+      alert(result.error);
+      return;
     }
-  };
-  // --------------------------------------------------------------------
-
-  const handleRunWorkflow = async () => {
-    try {
-      setIsConsoleOpen(true);
-
-      // 1. Create a Workflow record
-      const wfRes = await fetch(`${API_BASE}/api/workflows/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "UI Generated Workflow", description: "Created from canvas" })
-      });
-      const wf = await wfRes.json();
-
-      // 2. Save the React Flow JSON as a Version
-      const vRes = await fetch(`${API_BASE}/api/workflows/${wf.id}/versions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ graph_json: { nodes, edges } })
-      });
-      const version = await vRes.json();
-
-      // 3. Execute the Graph dynamically!
-      const runRes = await fetch(`${API_BASE}/api/workflows/${version.id}/run`, {
-        method: "POST"
-      });
-      const runData = await runRes.json();
-
-      console.log("LangGraph Execution Result:", runData);
-
-      if (runData.status === "paused") {
-        setPausedRunId(runData.id);
-        const criteriaList = runData.state_json?.success_criteria || [];
-        setEditingCriteria(criteriaList.join("\n"));
-      } else {
-        alert(`Backend LangGraph execution finished! Status: ${runData.status}\n\nFinal State logged to browser console.`);
-      }
-    } catch (error) {
-      console.error("Run error:", error);
-      alert("Failed to run. Is the FastAPI backend running on port 8000?");
-    }
+    setMission(result.nextMission);
+    setNodes(result.nextNodes);
   };
 
-  const handleResume = async () => {
-    if (!pausedRunId) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/workflows/${pausedRunId}/resume`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          state_updates: {
-            success_criteria: editingCriteria.split("\n").filter(c => c.trim())
-          }
-        })
-      });
-      const runData = await res.json();
-      setPausedRunId(null);
+  const handleAttachFile = () => {
+    const name = window.prompt("Attachment file name (mock)", "spec.md");
+    if (!name?.trim()) return;
+    setMission((m) => ({
+      ...m,
+      attachments: [...m.attachments, name.trim()],
+      prepared: false,
+    }));
+  };
 
-      console.log("Resumed LangGraph Result:", runData);
-      if (runData.status === "paused") {
-        // If it paused again (e.g. at human gate)
-        alert("Workflow paused again (Human Gate). Check console for state.");
-      } else {
-        alert(`Workflow resumed and finished! Status: ${runData.status}`);
-      }
-    } catch (e) {
-      console.error(e);
+  const handleSelectRepo = () => {
+    const path = window.prompt("Repo path (mock)", "target_repo");
+    if (!path?.trim()) return;
+    setMission((m) => ({
+      ...m,
+      repoPath: path.trim(),
+      prepared: false,
+    }));
+  };
+
+  const handleRun = async () => {
+    if (!mission.prepared) {
+      alert("Prepare the mission before Run.");
+      return;
     }
+    await startRun(nodes, edges);
+  };
+
+  const handleApprove = async () => {
+    await resumeRun({
+      success_criteria: editingCriteria
+        .split("\n")
+        .map((c) => c.trim())
+        .filter(Boolean),
+    });
+  };
+
+  const handleCancel = () => {
+    cancelLocal();
+    eventsPort.reset();
   };
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 relative">
-      {/* Pause Modal */}
-      {pausedRunId && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-[500px]">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Hybrid Mode: Edit Success Criteria</h2>
-            <p className="text-sm text-slate-600 mb-4">The Success Criteria Agent has generated the following rules. Edit them before the Planner begins.</p>
+    <div className="flex h-screen w-full flex-col bg-slate-100">
+      <MissionBar
+        mission={mission}
+        runStatus={runStatus}
+        isBusy={isBusy}
+        onObjectiveChange={(value) =>
+          setMission((m) => ({ ...m, objective: value, prepared: false }))
+        }
+        onAttachFile={handleAttachFile}
+        onSelectRepo={handleSelectRepo}
+        onPrepare={handlePrepare}
+        onRun={handleRun}
+      />
 
-            <textarea
-              value={editingCriteria}
-              onChange={(e) => setEditingCriteria(e.target.value)}
-              className="w-full h-40 p-3 border border-slate-300 rounded font-mono text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="1. Must pass tests..."
-            />
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setPausedRunId(null)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded font-medium text-sm"
-              >
-                Cancel Run
-              </button>
-              <button
-                onClick={handleResume}
-                className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 font-medium text-sm"
-              >
-                Approve & Continue Planning
-              </button>
-            </div>
-          </div>
+      {lastError && (
+        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {lastError}
         </div>
       )}
 
-      <div className="w-64 bg-white border-r border-slate-200 p-4 shadow-sm flex flex-col z-20">
-        <h2 className="text-lg font-bold mb-4 text-slate-800">Node Library</h2>
-        <div className="space-y-2">
-          {['Objective', 'Criteria', 'Planner', 'Executor', 'Validator', 'Decision', 'Human Gate'].map((nodeName) => (
-            <div
-              key={nodeName}
-              draggable
-              onDragStart={(e) => onDragStart(e, nodeName.toLowerCase().replace(' ', '_'), nodeName)}
-              className="p-3 bg-slate-100 rounded border border-slate-200 cursor-grab active:cursor-grabbing text-sm text-slate-700 font-medium hover:bg-slate-200 transition-colors"
-            >
-              {nodeName}
-            </div>
-          ))}
-        </div>
-
-        {/* Export / Import — manual test surface for nodeToJSON / jsonToNode */}
-        <div className="mt-6 pt-4 border-t border-slate-200 space-y-2">
-          <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Workflow File</h3>
-          <button
-            onClick={handleExport}
-            className="w-full px-3 py-2 bg-slate-800 text-white rounded text-sm font-medium hover:bg-slate-900"
-          >
-            Export JSON
-          </button>
-          <button
-            onClick={handleImportClick}
-            className="w-full px-3 py-2 bg-white text-slate-700 border border-slate-300 rounded text-sm font-medium hover:bg-slate-50"
-          >
-            Import JSON
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            onChange={handleImportFile}
-            className="hidden"
-          />
-          {importError && (
-            <p className="text-xs text-red-600">{importError}</p>
-          )}
-        </div>
+      <div className="flex min-h-0 flex-[1.6]">
+        <NodeLibrary locked={isGraphLocked} onDragStart={onDragStart} />
+        <WorkflowCanvas
+          nodes={nodesWithStatus}
+          edges={edges}
+          locked={isGraphLocked}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setReactFlowInstance}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+        />
+        <NodeInspector
+          selectedNode={selectedNode}
+          executionView={executionView}
+          onUpdateData={updateNodeData}
+        />
       </div>
 
-      <div className="flex-1 flex">
-        <div className="flex-1 relative">
-          <div className="absolute top-4 right-4 z-40 flex gap-2">
-            <button
-              onClick={handleRunWorkflow}
-              className="px-4 py-2 bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 font-medium text-sm"
-            >
-              Compile & Run Graph
-            </button>
-            {isConsoleOpen && (
-              <button
-                onClick={() => setIsConsoleOpen(false)}
-                className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded shadow-sm hover:bg-slate-50 font-medium text-sm"
-              >
-                Close Console
-              </button>
-            )}
-          </div>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onInit={setReactFlowInstance}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            fitView
-            className="w-full h-full"
-          >
-            <Controls />
-            <MiniMap />
-            <Background gap={12} size={1} />
-          </ReactFlow>
-        </div>
-
-        {/* Execution Console / Timeline */}
-        {isConsoleOpen && (
-          <div className="w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col z-20">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Run Console</h3>
-              <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-bold">RUNNING</span>
-            </div>
-            <div className="flex-1 p-4 overflow-y-auto space-y-4">
-              <div className="text-sm">
-                <p className="text-slate-500 font-medium mb-1">10:00:01 AM - Objective</p>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded text-slate-700">
-                  Parsed feature requirement: Lead Scoring & Routing
-                </div>
-              </div>
-              <div className="text-sm">
-                <p className="text-slate-500 font-medium mb-1">10:00:03 AM - Planner</p>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded text-slate-700">
-                  <p className="font-bold mb-2">Generated Plan:</p>
-                  <ol className="list-decimal pl-4 space-y-1">
-                    <li>Create backend models</li>
-                    <li>Add API routes</li>
-                    <li>Implement Next.js views</li>
-                  </ol>
-                </div>
-              </div>
-              <div className="text-sm animate-pulse">
-                <p className="text-blue-500 font-bold mb-1">10:00:05 AM - Executor (Running...)</p>
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded text-slate-700">
-                  <pre className="text-xs">
-                    {`$ claude-code run --plan="plan.md"
-> Reading twenty/backend/models...
-> Writing field definition for Person...
-> Running tests...`}
-                  </pre>
-                </div>
-              </div>
-            </div>
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
-              <button className="flex-1 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded font-medium text-sm hover:bg-red-100">Cancel Run</button>
-            </div>
-          </div>
-        )}
-
-        {/* Node Inspector Panel */}
-        {!isConsoleOpen && selectedNode && (
-          <div className="w-80 bg-white border-l border-slate-200 shadow-xl flex flex-col z-20">
-            <div className="p-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="font-bold text-slate-800">Node Inspector</h3>
-              <p className="text-xs text-slate-500">{selectedNode.id} ({selectedNode.type})</p>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Node Label</label>
-                <input
-                  type="text"
-                  value={(selectedNode?.data?.label as string) || ''}
-                  onChange={(e) => updateNodeData(selectedNode.id, 'label', e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {['planner', 'executor', 'validator'].includes(selectedNode?.data?.nodeType as string) && (
-                <>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Model</label>
-                    <select
-                      value={(selectedNode?.data?.model as string) || 'gpt-4o'}
-                      onChange={(e) => updateNodeData(selectedNode.id, 'model', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="gpt-4o">GPT-4o</option>
-                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="o1-mini">o1-mini</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">System Prompt / Instructions</label>
-                    <textarea
-                      rows={5}
-                      value={(selectedNode?.data?.instructions as string) || ''}
-                      onChange={(e) => updateNodeData(selectedNode.id, 'instructions', e.target.value)}
-                      placeholder="You are an expert engineer..."
-                      className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Max Retries</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={(selectedNode?.data?.maxRetries as string) || '3'}
-                      onChange={(e) => updateNodeData(selectedNode.id, 'maxRetries', e.target.value)}
-                      className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </>
-              )}
-
-              {selectedNode?.data?.nodeType === 'executor' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Execution Command</label>
-                  <input
-                    type="text"
-                    value={(selectedNode?.data?.command as string) || 'claude-code run'}
-                    onChange={(e) => updateNodeData(selectedNode.id, 'command', e.target.value)}
-                    className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+      <div className="flex h-56 shrink-0 border-t border-slate-300 bg-white">
+        <RunConsole
+          lines={consoleLines}
+          runStatus={runStatus}
+          onCancel={handleCancel}
+        />
+        <RunTimeline steps={timelineSteps} />
+        <HumanGatePanel
+          isOpen={Boolean(pausedRunId)}
+          criteriaText={editingCriteria}
+          onCriteriaChange={setEditingCriteria}
+          onApprove={handleApprove}
+          isBusy={isBusy}
+        />
       </div>
     </div>
   );
