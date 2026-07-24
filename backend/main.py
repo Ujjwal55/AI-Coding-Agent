@@ -4,6 +4,10 @@ from api.workflow import router as workflow_router
 from database.core import engine, Base
 import asyncio
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
