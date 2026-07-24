@@ -10,6 +10,12 @@ logger = get_logger(__name__)
 # Global in-memory checkpointer for the hackathon MVP
 memory_saver = MemorySaver()
 
+# Global flag to signal a pause at the next node execution
+GLOBAL_PAUSE_REQUESTED = False
+
+
+import asyncio
+
 async def execute_workflow(
     version_id: str,
     db: AsyncSession,
@@ -81,12 +87,32 @@ async def execute_workflow(
         else:
             run.status = "completed"
             run.state_json = _make_serializable(final_state)
+            
+    except asyncio.CancelledError:
+        logger.info("Task cancelled mid-execution", extra={"run_id": run_id})
+        run.status = "paused"
+        snapshot = compiled_graph.get_state(config)
+        state_values = dict(snapshot.values) if snapshot.values else {}
+        state_values["pause_reason"] = "user_paused"
+        run.state_json = _make_serializable(state_values)
+        await db.commit()
+        await db.refresh(run)
+        return run
         
     except Exception as e:
-        logger.error(f"Workflow execution failed: {e}", exc_info=True)
-        run.status = "failed"
-        run.state_json = {"error": str(e)}
-        logger.critical("Workflow execution failed with exception", extra={"run_id": run_id, "error": str(e)}, exc_info=True)
+        if type(e).__name__ == "NodeInterrupt" or "user_paused" in str(e):
+            logger.info("Run interrupted by user_paused exception.", extra={"run_id": run_id})
+            run.status = "paused"
+            snapshot = compiled_graph.get_state(config)
+            state_values = dict(snapshot.values) if snapshot.values else {}
+            state_values["pause_reason"] = "user_paused"
+            run.state_json = _make_serializable(state_values)
+        else:
+            logger.error(f"Workflow execution failed: {e}", exc_info=True)
+            run.status = "failed"
+            run.state_json = {"error": str(e)}
+            logger.critical("Workflow execution failed with exception", extra={"run_id": run_id, "error": str(e)}, exc_info=True)
+
         
     await db.commit()
     await db.refresh(run)

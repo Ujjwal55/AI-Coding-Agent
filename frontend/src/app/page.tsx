@@ -162,6 +162,8 @@ export default function ControlPlanePage() {
     approveCode,
     requestCodeChanges,
     cancelLocal,
+    pauseLocal,
+    resumeLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
   useEffect(() => {
@@ -475,6 +477,32 @@ export default function ControlPlanePage() {
     eventsPort.reset();
   };
 
+  const handleRestart = async () => {
+    if (!mission.prepared) {
+      alert("Prepare the mission before Run.");
+      return;
+    }
+    if (runStatus === "running") {
+      await pauseLocal();
+    }
+    cancelLocal();
+    eventsPort.reset();
+    // Start run immediately
+    await startRun(nodes, edges, {
+      objective: mission.objective,
+      workspaceId: mission.workspaceId,
+      maxPlanRevisions: 3,
+    });
+  };
+
+  const handleRunOrResume = () => {
+    if (runStatus === "paused") {
+      resumeLocal();
+    } else {
+      handleRun();
+    }
+  };
+
   const downloadUrl = mission.workspaceId
     ? workflowApi.downloadUrl(mission.workspaceId)
     : null;
@@ -513,7 +541,9 @@ export default function ControlPlanePage() {
         onUploadFolder={handleUploadFolder}
         onEmptyWorkspace={handleEmptyWorkspace}
         onPrepare={handlePrepare}
-        onRun={handleRun}
+        onRun={handleRunOrResume}
+        onPause={pauseLocal}
+        onRestart={handleRestart}
       />
 
       {lastError && (

@@ -120,4 +120,12 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
     });
     return parseJson<WorkflowRunRecord>(res);
   }
+
+  async pauseActive(): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/workflows/pause_active`, {
+      method: "POST",
+    });
+    await parseJson(res);
+  }
 }
+

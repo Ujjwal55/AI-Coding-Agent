@@ -15,6 +15,14 @@ from agents.decision import (
 from utils.logger import get_logger
 from utils.broadcaster import broadcast_event
 
+try:
+    from langgraph.errors import NodeInterrupt
+except ImportError:
+    class NodeInterrupt(Exception):
+        pass
+
+import orchestrator.runtime as runtime_state
+
 logger = get_logger(__name__)
 
 NODE_MAP = {
@@ -44,6 +52,12 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             "status": "in_progress"
         })
         
+        # Check if pause was requested
+        if getattr(runtime_state, "GLOBAL_PAUSE_REQUESTED", False):
+            runtime_state.GLOBAL_PAUSE_REQUESTED = False
+            logger.info("Halting node execution due to global pause request.", extra={"node_id": node_id})
+            raise NodeInterrupt("user_paused")
+            
         try:
             result = await base_func(state)
             

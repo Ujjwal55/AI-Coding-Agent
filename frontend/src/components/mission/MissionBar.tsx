@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench } from "lucide-react";
+import { FolderGit2, FolderPlus, Loader2, Play, Wrench, Pause, RotateCcw } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
@@ -13,6 +13,8 @@ interface MissionBarProps {
   onEmptyWorkspace: () => void;
   onPrepare: () => void;
   onRun: () => void;
+  onPause: () => void;
+  onRestart: () => void;
 }
 
 // Enables selecting a whole directory in the file picker (Chromium/WebKit).
@@ -30,9 +32,11 @@ export default function MissionBar({
   onEmptyWorkspace,
   onPrepare,
   onRun,
+  onPause,
+  onRestart,
 }: MissionBarProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const canRun = mission.prepared && !isBusy;
+  const canRun = (mission.prepared && !isBusy) || runStatus === "paused";
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
 
   return (
@@ -112,8 +116,30 @@ export default function MissionBar({
           className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play className="h-4 w-4" />
-          Run
+          {runStatus === "paused" ? "Resume" : "Run"}
         </button>
+
+        {runStatus === "running" && (
+          <button
+            type="button"
+            onClick={onPause}
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 shadow-sm hover:bg-amber-200"
+          >
+            <Pause className="h-4 w-4" />
+            Pause
+          </button>
+        )}
+
+        {runStatus !== "idle" && (
+          <button
+            type="button"
+            onClick={onRestart}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Restart
+          </button>
+        )}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -269,6 +269,8 @@ export function useWorkflowRun({
     [resume],
   );
 
+  const resumeLocal = useCallback(() => resume({ action: "resume" }), [resume]);
+
   const cancelLocal = useCallback(() => {
     eventsPort.append({
       runId: pausedRunId,
@@ -281,6 +283,20 @@ export function useWorkflowRun({
     setRunStatus("idle");
     setLastError(null);
   }, [eventsPort, pausedRunId]);
+
+  const pauseLocal = useCallback(async () => {
+    try {
+      await workflowApi.pauseActive();
+      eventsPort.append({
+        runId: null,
+        eventType: "node_started",
+        nodeId: null,
+        message: "Pause requested... Workflow will halt at next step.",
+      });
+    } catch (error) {
+      console.error("Failed to request pause:", error);
+    }
+  }, [workflowApi, eventsPort]);
 
   const isGraphLocked =
     runStatus === "running" || runStatus === "paused" || isBusy;
@@ -302,5 +318,7 @@ export function useWorkflowRun({
     approveCode,
     requestCodeChanges,
     cancelLocal,
+    pauseLocal,
+    resumeLocal,
   };
 }
