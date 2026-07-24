@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import JSZip from "jszip";
 import {
   addEdge,
   useEdgesState,
@@ -87,6 +86,7 @@ const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB total
 async function zipSelectedFolder(
   files: FileList,
 ): Promise<{ blob: Blob; count: number } | { error: string }> {
+  const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
   let count = 0;
   let total = 0;
