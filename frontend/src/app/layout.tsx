@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Workflow Orchestration Platform",
-  description: "Track B Hackathon Entry",
+  title: "AI Coding Control Plane",
+  description: "Mission, Workflow, and Control layers for AI coding runs",
 };
 
 export default function RootLayout({
