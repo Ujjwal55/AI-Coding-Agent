@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import JSZip from "jszip";
 import {
   addEdge,
   useEdgesState,
@@ -27,78 +28,94 @@ import WorkflowCanvas from "@/components/workflow/WorkflowCanvas";
 import NodeInspector from "@/components/workflow/NodeInspector";
 import RunConsole from "@/components/control/RunConsole";
 import RunTimeline from "@/components/control/RunTimeline";
-import HumanGatePanel from "@/components/control/HumanGatePanel";
+import PlanReviewPanel from "@/components/control/PlanReviewPanel";
+import CodeReviewPanel from "@/components/control/CodeReviewPanel";
 
+const NODE_X = 320;
+const NODE_GAP = 84;
+const stack = (i: number) => ({ x: NODE_X, y: 40 + i * NODE_GAP });
 const initialNodes: Node[] = [
-  {
-    id: "objective",
-    position: { x: 250, y: 50 },
-    data: { label: "Feature Request", nodeType: "objective", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "criteria",
-    position: { x: 250, y: 150 },
-    data: { label: "Define Criteria", nodeType: "criteria", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "planner",
-    position: { x: 250, y: 250 },
-    data: { label: "Create Plan", nodeType: "planner", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "executor",
-    position: { x: 250, y: 350 },
-    data: { label: "Write Code", nodeType: "executor", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "validator",
-    position: { x: 250, y: 450 },
-    data: { label: "Run Tests", nodeType: "validator", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "decision",
-    position: { x: 250, y: 550 },
-    data: { label: "Evaluate", nodeType: "decision", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "human_approval",
-    position: { x: 250, y: 650 },
-    data: { label: "Review PR", nodeType: "human_gate", status: "pending" },
-    type: "custom",
-  },
-  {
-    id: "end",
-    position: { x: 250, y: 750 },
-    data: { label: "Merged", nodeType: "end", status: "pending" },
-    type: "custom",
-  },
+  { id: "objective", position: stack(0), data: { label: "Feature Request", nodeType: "objective", status: "pending" }, type: "custom" },
+  { id: "criteria", position: stack(1), data: { label: "Define Criteria", nodeType: "criteria", status: "pending" }, type: "custom" },
+  { id: "code_understanding", position: stack(2), data: { label: "Understand Repo", nodeType: "code_understanding", status: "pending" }, type: "custom" },
+  { id: "planner", position: stack(3), data: { label: "Create Plan", nodeType: "planner", status: "pending" }, type: "custom" },
+  { id: "plan_review", position: stack(4), data: { label: "Review Plan", nodeType: "plan_review", status: "pending" }, type: "custom" },
+  { id: "executor", position: stack(5), data: { label: "Write Code", nodeType: "executor", status: "pending" }, type: "custom" },
+  { id: "validator", position: stack(6), data: { label: "Validate", nodeType: "validator", status: "pending" }, type: "custom" },
+  { id: "decision", position: stack(7), data: { label: "Evaluate", nodeType: "decision", status: "pending" }, type: "custom" },
+  { id: "human_approval", position: stack(8), data: { label: "Review Code", nodeType: "human_gate", status: "pending" }, type: "custom" },
+  { id: "end", position: stack(9), data: { label: "Merged", nodeType: "end", status: "pending" }, type: "custom" },
 ];
 
 const initialEdges: Edge[] = [
-  { id: "e1-2", source: "objective", target: "criteria" },
-  { id: "e2-3", source: "criteria", target: "planner" },
-  { id: "e3-4", source: "planner", target: "executor" },
-  { id: "e4-5", source: "executor", target: "validator" },
-  { id: "e5-6", source: "validator", target: "decision" },
-  { id: "e6-7", source: "decision", target: "human_approval" },
-  {
-    id: "e6-3",
-    source: "decision",
-    target: "planner",
-    type: "smoothstep",
-  },
-  { id: "e7-8", source: "human_approval", target: "end" },
+  { id: "e-obj-crit", source: "objective", target: "criteria" },
+  { id: "e-crit-cu", source: "criteria", target: "code_understanding" },
+  { id: "e-cu-plan", source: "code_understanding", target: "planner" },
+  { id: "e-plan-pr", source: "planner", target: "plan_review" },
+  { id: "e-pr-exec", source: "plan_review", target: "executor" },
+  { id: "e-pr-plan", source: "plan_review", target: "planner", type: "smoothstep" },
+  { id: "e-exec-val", source: "executor", target: "validator" },
+  { id: "e-val-dec", source: "validator", target: "decision" },
+  { id: "e-dec-hg", source: "decision", target: "human_approval" },
+  { id: "e-dec-plan", source: "decision", target: "planner", type: "smoothstep" },
+  { id: "e-hg-end", source: "human_approval", target: "end" },
+  { id: "e-hg-plan", source: "human_approval", target: "planner", type: "smoothstep" },
 ];
 
 /** Composition root: construct adapters once and inject ports. */
 const workflowApi = new HttpWorkflowAdapter();
 const eventsPort = new MockRunEventsAdapter();
+
+// Directories we never want to include when zipping an uploaded repo.
+const IGNORE_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".next",
+  "dist",
+  "build",
+  "out",
+  "venv",
+  ".venv",
+  "__pycache__",
+  ".turbo",
+  "coverage",
+  ".cache",
+]);
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB per file
+const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB total
+
+async function zipSelectedFolder(
+  files: FileList,
+): Promise<{ blob: Blob; count: number } | { error: string }> {
+  const zip = new JSZip();
+  let count = 0;
+  let total = 0;
+
+  for (const file of Array.from(files)) {
+    const rel = file.webkitRelativePath || file.name;
+    const parts = rel.split("/");
+    // Strip the top-level selected folder so files sit at the workspace root.
+    const stripped = parts.length > 1 ? parts.slice(1).join("/") : rel;
+    if (!stripped) continue;
+    if (stripped.split("/").some((seg) => IGNORE_DIRS.has(seg))) continue;
+    if (file.size > MAX_FILE_BYTES) continue;
+    total += file.size;
+    if (total > MAX_TOTAL_BYTES) {
+      return {
+        error: "Repository is too large after filtering (>50MB). Try a smaller repo.",
+      };
+    }
+    zip.file(stripped, file);
+    count++;
+  }
+
+  if (count === 0) return { error: "No files found to upload after filtering." };
+  const blob = await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+  });
+  return { blob, count };
+}
 
 export default function ControlPlanePage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -111,19 +128,26 @@ export default function ControlPlanePage() {
     repoPath: null,
     attachments: [],
     prepared: false,
+    workspaceId: null,
+    fileTree: [],
+    uploading: false,
   });
 
   const { prepare } = usePrepareMission(eventsPort);
   const {
     runStatus,
-    pausedRunId,
-    editingCriteria,
-    setEditingCriteria,
+    pauseReason,
+    currentPlan,
+    planRevision,
+    codeChangesSummary,
     lastError,
     isBusy,
     isGraphLocked,
     startRun,
-    resumeRun,
+    approvePlan,
+    sendPlanFeedback,
+    approveCode,
+    requestCodeChanges,
     cancelLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
@@ -150,10 +174,7 @@ export default function ControlPlanePage() {
     () =>
       projectTimeline(
         events,
-        nodes.map((n) => ({
-          id: n.id,
-          label: String(n.data.label || n.id),
-        })),
+        nodes.map((n) => ({ id: n.id, label: String(n.data.label || n.id) })),
       ),
     [events, nodes],
   );
@@ -235,24 +256,37 @@ export default function ControlPlanePage() {
     setNodes(result.nextNodes);
   };
 
-  const handleAttachFile = () => {
-    const name = window.prompt("Attachment file name (mock)", "spec.md");
-    if (!name?.trim()) return;
-    setMission((m) => ({
-      ...m,
-      attachments: [...m.attachments, name.trim()],
-      prepared: false,
-    }));
-  };
-
-  const handleSelectRepo = () => {
-    const path = window.prompt("Repo path (mock)", "target_repo");
-    if (!path?.trim()) return;
-    setMission((m) => ({
-      ...m,
-      repoPath: path.trim(),
-      prepared: false,
-    }));
+  const handleUploadFolder = async (files: FileList) => {
+    setMission((m) => ({ ...m, uploading: true, prepared: false }));
+    const result = await zipSelectedFolder(files);
+    if ("error" in result) {
+      alert(result.error);
+      setMission((m) => ({ ...m, uploading: false }));
+      return;
+    }
+    try {
+      const { workspace_id, file_tree } = await workflowApi.uploadRepo(
+        result.blob,
+        "workspace.zip",
+      );
+      setMission((m) => ({
+        ...m,
+        uploading: false,
+        workspaceId: workspace_id,
+        fileTree: file_tree,
+      }));
+      eventsPort.append({
+        runId: null,
+        eventType: "prepared",
+        nodeId: null,
+        message: `Uploaded repo: ${result.count} files → workspace ${workspace_id.slice(0, 8)}`,
+      });
+    } catch (error) {
+      alert(
+        `Upload failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setMission((m) => ({ ...m, uploading: false }));
+    }
   };
 
   const handleRun = async () => {
@@ -260,15 +294,10 @@ export default function ControlPlanePage() {
       alert("Prepare the mission before Run.");
       return;
     }
-    await startRun(nodes, edges);
-  };
-
-  const handleApprove = async () => {
-    await resumeRun({
-      success_criteria: editingCriteria
-        .split("\n")
-        .map((c) => c.trim())
-        .filter(Boolean),
+    await startRun(nodes, edges, {
+      objective: mission.objective,
+      workspaceId: mission.workspaceId,
+      maxPlanRevisions: 3,
     });
   };
 
@@ -276,6 +305,12 @@ export default function ControlPlanePage() {
     cancelLocal();
     eventsPort.reset();
   };
+
+  const downloadUrl = mission.workspaceId
+    ? workflowApi.downloadUrl(mission.workspaceId)
+    : null;
+
+  const isPaused = runStatus === "paused";
 
   return (
     <div className="flex h-screen w-full flex-col bg-slate-100">
@@ -286,8 +321,7 @@ export default function ControlPlanePage() {
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value, prepared: false }))
         }
-        onAttachFile={handleAttachFile}
-        onSelectRepo={handleSelectRepo}
+        onUploadFolder={handleUploadFolder}
         onPrepare={handlePrepare}
         onRun={handleRun}
       />
@@ -318,20 +352,34 @@ export default function ControlPlanePage() {
         />
       </div>
 
-      <div className="flex h-56 shrink-0 border-t border-slate-300 bg-white">
+      <div className="flex h-72 shrink-0 border-t border-slate-300 bg-white">
         <RunConsole
           lines={consoleLines}
           runStatus={runStatus}
           onCancel={handleCancel}
         />
         <RunTimeline steps={timelineSteps} />
-        <HumanGatePanel
-          isOpen={Boolean(pausedRunId)}
-          criteriaText={editingCriteria}
-          onCriteriaChange={setEditingCriteria}
-          onApprove={handleApprove}
-          isBusy={isBusy}
-        />
+        {pauseReason === "code_review" ? (
+          <CodeReviewPanel
+            key={`code-${planRevision}`}
+            isOpen={isPaused}
+            summary={codeChangesSummary}
+            downloadUrl={downloadUrl}
+            onApprove={approveCode}
+            onRequestChanges={requestCodeChanges}
+            isBusy={isBusy}
+          />
+        ) : (
+          <PlanReviewPanel
+            key={`plan-${planRevision}`}
+            isOpen={isPaused && pauseReason === "plan_review"}
+            plan={currentPlan}
+            planRevision={planRevision}
+            onApprove={approvePlan}
+            onSendFeedback={sendPlanFeedback}
+            isBusy={isBusy}
+          />
+        )}
       </div>
     </div>
   );

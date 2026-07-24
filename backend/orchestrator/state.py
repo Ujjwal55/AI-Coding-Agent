@@ -9,14 +9,25 @@ class GraphState(TypedDict):
     objective: str
     success_criteria: List[str]
     
+    # Workspace (uploaded repo)
+    workspace_id: Optional[str]
+    code_summary: Optional[str]
+    
     # Execution Tracking
     plan: Optional[str]
     current_attempt: int
     max_attempts: int
     
+    # Plan Review (Human Feedback Loop)
+    plan_feedback: Optional[str]
+    plan_approved: bool
+    plan_revision: int          # how many times the plan has been (re)generated
+    max_plan_revisions: int     # bound on the plan feedback loop
+    
     # Execution State
     executor_output: Optional[str]
     artifacts: List[Dict[str, Any]]
+    code_changes_summary: Optional[str]
     
     # Validation
     validation_status: str # "PASS" or "FAIL"
@@ -28,6 +39,10 @@ class GraphState(TypedDict):
     
     # HITL (Human In The Loop)
     human_approved: bool
+    
+    # Pause reason for the frontend to know which panel to show
+    pause_reason: Optional[str]  # "criteria_review", "plan_review", "code_review"
 
     # Dynamic UI Configuration injected by graph compiler
     _current_node_config: Optional[Dict[str, Any]]
+

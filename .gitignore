@@ -237,3 +237,9 @@ venv.bak/
 *.swp
 *.swo
 *~
+
+# Uploaded user repositories (extracted per-run workspaces)
+backend/workspaces/
+
+# Local LLM fallback model cache
+backend/models_cache/
