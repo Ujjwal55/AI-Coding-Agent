@@ -328,13 +328,14 @@ export default function WorkflowBuilder() {
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Model</label>
                     <select 
-                      value={(selectedNode?.data?.model as string) || 'gpt-4o'}
+                      value={(selectedNode.data.model as string) || 'gemini-1.5-pro'}
                       onChange={(e) => updateNodeData(selectedNode.id, 'model', e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="gpt-4o">GPT-4o</option>
-                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="o1-mini">o1-mini</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                      <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                      <option value="llama3-70b-8192">Llama 3 70B (Groq)</option>
+                      <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
                     </select>
                   </div>
 
