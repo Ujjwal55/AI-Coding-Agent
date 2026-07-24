@@ -4,9 +4,9 @@ import asyncio
 import os
 from agents.llm import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage
-import logging
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 WORKSPACES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspaces"))
 

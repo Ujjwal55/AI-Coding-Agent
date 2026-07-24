@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models.workflow import WorkflowVersion, WorkflowRun
 from langgraph.checkpoint.memory import MemorySaver
-import logging
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Global in-memory checkpointer for the hackathon MVP
 memory_saver = MemorySaver()

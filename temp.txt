@@ -11,4 +11,11 @@
 
 
 
-1. human modificatoin
+1. human modification 
+2. deletion of the node 
+3. ui console draggable : 
+    console 
+    timeline 
+    human criteria edit 
+4. import/export json 
+5. human intervention handling logic 
