@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -13,6 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import CustomNode from '@/components/CustomNode';
+import { nodeToJSON, jsonToNode } from '@/lib/nodeSerialization'; // adjust path to wherever you put nodeSerialization.ts
 
 const nodeTypes = {
   custom: CustomNode,
@@ -69,12 +70,12 @@ export default function WorkflowBuilder() {
       if (!typeData || !reactFlowInstance) return;
 
       const { nodeType, label } = JSON.parse(typeData);
-      
+
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
-      
+
       const newId = `${nodeType}-${new Date().getTime()}`;
 
       const newNode = {
@@ -91,7 +92,7 @@ export default function WorkflowBuilder() {
 
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const selectedNode = nodes.find(n => n.selected);
-  
+
   // Pause/Resume state
   const [pausedRunId, setPausedRunId] = useState<string | null>(null);
   const [editingCriteria, setEditingCriteria] = useState<string>('');
@@ -106,9 +107,60 @@ export default function WorkflowBuilder() {
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+  // ---------- Export / Import (exercises nodeToJSON / jsonToNode) ----------
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const handleExport = () => {
+    const payload = {
+      nodes: nodes.map(nodeToJSON),
+      edges, // edges don't need custom (de)serialization today, passed through as-is
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `workflow-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    setImportError(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // reset the input so selecting the same file again still fires onChange
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (!Array.isArray(parsed.nodes)) {
+        throw new Error("Invalid file: expected a `nodes` array");
+      }
+
+      const importedNodes = parsed.nodes.map(jsonToNode);
+      const importedEdges = Array.isArray(parsed.edges) ? parsed.edges : [];
+
+      setNodes(importedNodes);
+      setEdges(importedEdges);
+      setImportError(null);
+    } catch (err: any) {
+      console.error("Import failed:", err);
+      setImportError(err.message || "Failed to import workflow file");
+    }
+  };
+  // --------------------------------------------------------------------
+
   const handleRunWorkflow = async () => {
     try {
-      setIsConsoleOpen(true); 
+      setIsConsoleOpen(true);
 
       // 1. Create a Workflow record
       const wfRes = await fetch(`${API_BASE}/api/workflows/`, {
@@ -131,15 +183,15 @@ export default function WorkflowBuilder() {
         method: "POST"
       });
       const runData = await runRes.json();
-      
+
       console.log("LangGraph Execution Result:", runData);
-      
+
       if (runData.status === "paused") {
-         setPausedRunId(runData.id);
-         const criteriaList = runData.state_json?.success_criteria || [];
-         setEditingCriteria(criteriaList.join("\n"));
+        setPausedRunId(runData.id);
+        const criteriaList = runData.state_json?.success_criteria || [];
+        setEditingCriteria(criteriaList.join("\n"));
       } else {
-         alert(`Backend LangGraph execution finished! Status: ${runData.status}\n\nFinal State logged to browser console.`);
+        alert(`Backend LangGraph execution finished! Status: ${runData.status}\n\nFinal State logged to browser console.`);
       }
     } catch (error) {
       console.error("Run error:", error);
@@ -148,30 +200,30 @@ export default function WorkflowBuilder() {
   };
 
   const handleResume = async () => {
-     if (!pausedRunId) return;
-     try {
-       const res = await fetch(`${API_BASE}/api/workflows/${pausedRunId}/resume`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-             state_updates: {
-                success_criteria: editingCriteria.split("\n").filter(c => c.trim())
-             }
-          })
-       });
-       const runData = await res.json();
-       setPausedRunId(null);
-       
-       console.log("Resumed LangGraph Result:", runData);
-       if (runData.status === "paused") {
-          // If it paused again (e.g. at human gate)
-          alert("Workflow paused again (Human Gate). Check console for state.");
-       } else {
-          alert(`Workflow resumed and finished! Status: ${runData.status}`);
-       }
-     } catch (e) {
-       console.error(e);
-     }
+    if (!pausedRunId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/workflows/${pausedRunId}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state_updates: {
+            success_criteria: editingCriteria.split("\n").filter(c => c.trim())
+          }
+        })
+      });
+      const runData = await res.json();
+      setPausedRunId(null);
+
+      console.log("Resumed LangGraph Result:", runData);
+      if (runData.status === "paused") {
+        // If it paused again (e.g. at human gate)
+        alert("Workflow paused again (Human Gate). Check console for state.");
+      } else {
+        alert(`Workflow resumed and finished! Status: ${runData.status}`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
@@ -182,22 +234,22 @@ export default function WorkflowBuilder() {
           <div className="bg-white rounded-xl shadow-2xl p-6 w-[500px]">
             <h2 className="text-xl font-bold text-slate-800 mb-2">Hybrid Mode: Edit Success Criteria</h2>
             <p className="text-sm text-slate-600 mb-4">The Success Criteria Agent has generated the following rules. Edit them before the Planner begins.</p>
-            
+
             <textarea
               value={editingCriteria}
               onChange={(e) => setEditingCriteria(e.target.value)}
               className="w-full h-40 p-3 border border-slate-300 rounded font-mono text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
               placeholder="1. Must pass tests..."
             />
-            
+
             <div className="flex justify-end gap-2">
-              <button 
+              <button
                 onClick={() => setPausedRunId(null)}
                 className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded font-medium text-sm"
               >
                 Cancel Run
               </button>
-              <button 
+              <button
                 onClick={handleResume}
                 className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 font-medium text-sm"
               >
@@ -212,35 +264,62 @@ export default function WorkflowBuilder() {
         <h2 className="text-lg font-bold mb-4 text-slate-800">Node Library</h2>
         <div className="space-y-2">
           {['Objective', 'Criteria', 'Planner', 'Executor', 'Validator', 'Decision', 'Human Gate'].map((nodeName) => (
-             <div 
-               key={nodeName} 
-               draggable
-               onDragStart={(e) => onDragStart(e, nodeName.toLowerCase().replace(' ', '_'), nodeName)}
-               className="p-3 bg-slate-100 rounded border border-slate-200 cursor-grab active:cursor-grabbing text-sm text-slate-700 font-medium hover:bg-slate-200 transition-colors"
-             >
-               {nodeName}
-             </div>
+            <div
+              key={nodeName}
+              draggable
+              onDragStart={(e) => onDragStart(e, nodeName.toLowerCase().replace(' ', '_'), nodeName)}
+              className="p-3 bg-slate-100 rounded border border-slate-200 cursor-grab active:cursor-grabbing text-sm text-slate-700 font-medium hover:bg-slate-200 transition-colors"
+            >
+              {nodeName}
+            </div>
           ))}
         </div>
+
+        {/* Export / Import — manual test surface for nodeToJSON / jsonToNode */}
+        <div className="mt-6 pt-4 border-t border-slate-200 space-y-2">
+          <h3 className="text-xs font-bold text-slate-500 uppercase mb-2">Workflow File</h3>
+          <button
+            onClick={handleExport}
+            className="w-full px-3 py-2 bg-slate-800 text-white rounded text-sm font-medium hover:bg-slate-900"
+          >
+            Export JSON
+          </button>
+          <button
+            onClick={handleImportClick}
+            className="w-full px-3 py-2 bg-white text-slate-700 border border-slate-300 rounded text-sm font-medium hover:bg-slate-50"
+          >
+            Import JSON
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+          {importError && (
+            <p className="text-xs text-red-600">{importError}</p>
+          )}
+        </div>
       </div>
-      
+
       <div className="flex-1 flex">
         <div className="flex-1 relative">
           <div className="absolute top-4 right-4 z-40 flex gap-2">
-             <button 
-               onClick={handleRunWorkflow}
-               className="px-4 py-2 bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 font-medium text-sm"
-             >
-               Compile & Run Graph
-             </button>
-             {isConsoleOpen && (
-               <button 
-                 onClick={() => setIsConsoleOpen(false)}
-                 className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded shadow-sm hover:bg-slate-50 font-medium text-sm"
-               >
-                 Close Console
-               </button>
-             )}
+            <button
+              onClick={handleRunWorkflow}
+              className="px-4 py-2 bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 font-medium text-sm"
+            >
+              Compile & Run Graph
+            </button>
+            {isConsoleOpen && (
+              <button
+                onClick={() => setIsConsoleOpen(false)}
+                className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded shadow-sm hover:bg-slate-50 font-medium text-sm"
+              >
+                Close Console
+              </button>
+            )}
           </div>
           <ReactFlow
             nodes={nodes}
@@ -290,7 +369,7 @@ export default function WorkflowBuilder() {
                 <p className="text-blue-500 font-bold mb-1">10:00:05 AM - Executor (Running...)</p>
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded text-slate-700">
                   <pre className="text-xs">
-{`$ claude-code run --plan="plan.md"
+                    {`$ claude-code run --plan="plan.md"
 > Reading twenty/backend/models...
 > Writing field definition for Person...
 > Running tests...`}
@@ -299,7 +378,7 @@ export default function WorkflowBuilder() {
               </div>
             </div>
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-2">
-               <button className="flex-1 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded font-medium text-sm hover:bg-red-100">Cancel Run</button>
+              <button className="flex-1 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded font-medium text-sm hover:bg-red-100">Cancel Run</button>
             </div>
           </div>
         )}
@@ -311,12 +390,12 @@ export default function WorkflowBuilder() {
               <h3 className="font-bold text-slate-800">Node Inspector</h3>
               <p className="text-xs text-slate-500">{selectedNode.id} ({selectedNode.type})</p>
             </div>
-            
+
             <div className="flex-1 p-4 overflow-y-auto space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Node Label</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={(selectedNode?.data?.label as string) || ''}
                   onChange={(e) => updateNodeData(selectedNode.id, 'label', e.target.value)}
                   className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -327,7 +406,7 @@ export default function WorkflowBuilder() {
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Model</label>
-                    <select 
+                    <select
                       value={(selectedNode?.data?.model as string) || 'gpt-4o'}
                       onChange={(e) => updateNodeData(selectedNode.id, 'model', e.target.value)}
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -340,7 +419,7 @@ export default function WorkflowBuilder() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">System Prompt / Instructions</label>
-                    <textarea 
+                    <textarea
                       rows={5}
                       value={(selectedNode?.data?.instructions as string) || ''}
                       onChange={(e) => updateNodeData(selectedNode.id, 'instructions', e.target.value)}
@@ -348,11 +427,11 @@ export default function WorkflowBuilder() {
                       className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Max Retries</label>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       min="0"
                       max="10"
                       value={(selectedNode?.data?.maxRetries as string) || '3'}
@@ -366,8 +445,8 @@ export default function WorkflowBuilder() {
               {selectedNode?.data?.nodeType === 'executor' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Execution Command</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={(selectedNode?.data?.command as string) || 'claude-code run'}
                     onChange={(e) => updateNodeData(selectedNode.id, 'command', e.target.value)}
                     className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
