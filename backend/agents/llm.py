@@ -25,7 +25,8 @@ logger = get_logger(__name__)
 
 _local_llm_instance = None
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+# Default model that is known to work with current Google GenAI API keys.
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 # Groq: llama3-70b-8192 and mixtral-8x7b-32768 are decommissioned.
 # Prefer current IDs (see https://console.groq.com/docs/deprecations).
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
@@ -36,7 +37,7 @@ GROQ_FALLBACK_MODELS = [
     "llama-3.1-8b-instant",
 ]
 GEMINI_FALLBACK_MODELS = [
-    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
     "gemini-2.0-flash",
     "gemini-flash-latest",
 ]

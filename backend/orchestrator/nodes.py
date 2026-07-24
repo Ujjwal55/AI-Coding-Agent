@@ -26,7 +26,7 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
     previous_plan = state.get("plan", None)
-    model_name = config.get("model", "gemini-2.5-flash")
+    model_name = config.get("model", "gemini-3.1-flash-lite")
 
     llm = get_llm(model_name)
 
@@ -143,7 +143,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     plan = state.get("plan", "No plan provided")
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
-    model_name = config.get("model", "gemini-2.5-flash")
+    model_name = config.get("model", "gemini-3.1-flash-lite")
 
     if not workspace_id:
         return {
