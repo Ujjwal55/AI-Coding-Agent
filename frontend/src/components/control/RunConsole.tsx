@@ -1,24 +1,39 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConsoleLine, RunStatus } from "@/domain/types";
+import { Maximize2, Minimize2, Trash2 } from "lucide-react";
 
 interface RunConsoleProps {
   lines: ConsoleLine[];
   runStatus: RunStatus;
-  onCancel: () => void;
+  onClear?: () => void;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 export default function RunConsole({
   lines,
   runStatus,
-  onCancel,
+  onClear,
+  expanded = false,
+  onToggleExpand,
 }: RunConsoleProps) {
   const consoleEndRef = useRef<HTMLDivElement>(null);
+  const [localCleared, setLocalCleared] = useState(false);
+  const [clearedAtCount, setClearedAtCount] = useState(0);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines]);
+
+  useEffect(() => {
+    if (lines.length > clearedAtCount) {
+      setLocalCleared(false);
+    }
+  }, [lines.length, clearedAtCount]);
+
+  const visibleLines = localCleared ? [] : lines;
 
   const badge =
     runStatus === "running"
@@ -31,33 +46,67 @@ export default function RunConsole({
             ? "bg-red-100 text-red-800"
             : "bg-slate-100 text-slate-600";
 
+  const handleClear = () => {
+    setLocalCleared(true);
+    setClearedAtCount(lines.length);
+    onClear?.();
+  };
+
   return (
     <section className="flex min-h-0 flex-1 flex-col border-r border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 shrink-0">
-        <h3 className="text-sm font-bold text-slate-800">Run Console</h3>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${badge}`}
-        >
-          {runStatus}
-        </span>
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-bold text-slate-800">Run Console</h3>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${badge}`}
+          >
+            {runStatus}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleClear}
+            className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+            title="Clear console"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+              title={expanded ? "Collapse console" : "Expand console"}
+            >
+              {expanded ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 font-mono text-xs select-text">
-        {lines.length === 0 ? (
-          <p className="text-slate-400">No events yet. Prepare or Run a mission.</p>
+      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto bg-slate-950 p-3 font-mono text-xs select-text">
+        {visibleLines.length === 0 ? (
+          <p className="text-slate-500">
+            No events yet. Prepare or Run a mission.
+          </p>
         ) : (
-          lines.map((line) => (
+          visibleLines.map((line) => (
             <div key={line.id} className="leading-relaxed">
-              <span className="text-slate-400">{line.timestamp}</span>{" "}
+              <span className="text-slate-500">{line.timestamp}</span>{" "}
               <span
                 className={
                   line.tone === "active"
-                    ? "text-blue-600 font-semibold"
+                    ? "font-semibold text-sky-300"
                     : line.tone === "error"
-                      ? "text-red-600 font-semibold"
+                      ? "font-semibold text-red-400"
                       : line.tone === "success"
-                        ? "text-emerald-700 font-semibold"
-                        : "text-slate-700"
+                        ? "font-semibold text-emerald-400"
+                        : "text-slate-200"
                 }
               >
                 {line.message}
@@ -66,16 +115,6 @@ export default function RunConsole({
           ))
         )}
         <div ref={consoleEndRef} />
-      </div>
-
-      <div className="border-t border-slate-200 bg-slate-50 p-2 shrink-0">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="w-full rounded border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors"
-        >
-          Cancel
-        </button>
       </div>
     </section>
   );

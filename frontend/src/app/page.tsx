@@ -12,6 +12,7 @@ import {
 } from "@xyflow/react";
 import { HttpWorkflowAdapter } from "@/adapters/http/HttpWorkflowAdapter";
 import { MockRunEventsAdapter } from "@/adapters/mock/MockRunEventsAdapter";
+import { usePrepareMission } from "@/application/usePrepareMission";
 import { useWorkflowRun } from "@/application/useWorkflowRun";
 import {
   projectConsoleLines,
@@ -151,12 +152,14 @@ export default function ControlPlanePage() {
     uploading: false,
   });
 
+  const { prepare } = usePrepareMission(eventsPort);
   const {
     runStatus,
     pauseReason,
     currentPlan,
     planRevision,
     codeChangesSummary,
+    successCriteria,
     lastError,
     isBusy,
     isGraphLocked,
@@ -165,8 +168,10 @@ export default function ControlPlanePage() {
     sendPlanFeedback,
     approveCode,
     requestCodeChanges,
-    cancelLocal,
+    approveCriteria,
   } = useWorkflowRun({ workflowApi, eventsPort });
+
+  const [consoleExpanded, setConsoleExpanded] = useState(false);
 
   useEffect(() => {
     const unsub = eventsPort.subscribe(setEvents);
@@ -317,6 +322,9 @@ export default function ControlPlanePage() {
   const [bottomHeight, setBottomHeight] = useState(280);
   const [consoleWidth, setConsoleWidth] = useState(350);
   const [reviewWidth, setReviewWidth] = useState(350);
+  const effectiveBottomHeight = consoleExpanded
+    ? Math.max(bottomHeight, 480)
+    : bottomHeight;
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -498,11 +506,6 @@ export default function ControlPlanePage() {
     });
   };
 
-  const handleCancel = () => {
-    cancelLocal();
-    eventsPort.reset();
-  };
-
   const downloadUrl = mission.workspaceId
     ? workflowApi.downloadUrl(mission.workspaceId)
     : null;
@@ -541,6 +544,8 @@ export default function ControlPlanePage() {
         }
         onUploadFolder={handleUploadFolder}
         onEmptyWorkspace={handleEmptyWorkspace}
+        onExport={handleExport}
+        onImportFile={handleImportFile}
         onPrepare={handlePrepare}
         onRun={handleRun}
       />
@@ -551,7 +556,7 @@ export default function ControlPlanePage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-[1.6]">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <NodeLibrary
           locked={isGraphLocked}
           onDragStart={onDragStart}
@@ -577,7 +582,7 @@ export default function ControlPlanePage() {
 
       {/* Resizable Bottom Control Panel (Run Console, Step Timeline & Review Panels) */}
       <div
-        style={{ height: `${bottomHeight}px` }}
+        style={{ height: `${effectiveBottomHeight}px` }}
         className="relative flex shrink-0 border-t border-slate-300 bg-white shadow-lg"
       >
         {/* Top Resize Drag Handle */}
@@ -593,7 +598,8 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
-            onCancel={handleCancel}
+            expanded={consoleExpanded}
+            onToggleExpand={() => setConsoleExpanded((v) => !v)}
           />
         </div>
 
@@ -601,21 +607,21 @@ export default function ControlPlanePage() {
         <div
           onMouseDown={handleConsoleResize}
           className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
-          style={{ left: consoleWidth - 4, width: '8px' }}
+          style={{ left: consoleWidth - 4, width: "8px" }}
           title="Drag horizontally to resize console"
         >
           <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
         </div>
 
         <div className="flex-1 min-w-[300px] flex h-full overflow-hidden">
-          <RunTimeline steps={timelineSteps} />
+          <RunTimeline steps={timelineSteps} runStatus={runStatus} />
         </div>
 
         {/* Right Resize Drag Handle (Review) */}
         <div
           onMouseDown={handleReviewResize}
           className="absolute bottom-0 top-0 cursor-col-resize z-30 group flex items-center justify-center transition-colors"
-          style={{ right: reviewWidth - 4, width: '8px' }}
+          style={{ right: reviewWidth - 4, width: "8px" }}
           title="Drag horizontally to resize review panel"
         >
           <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
@@ -645,14 +651,26 @@ export default function ControlPlanePage() {
               onRequestChanges={requestCodeChanges}
               isBusy={isBusy}
             />
-          ) : (
+          ) : pauseReason === "plan_review" ? (
             <PlanReviewPanel
               key={`plan-${planRevision}`}
-              isOpen={isPaused && pauseReason === "plan_review"}
+              isOpen={isPaused}
               plan={currentPlan}
               planRevision={planRevision}
               onApprove={approvePlan}
               onSendFeedback={sendPlanFeedback}
+              isBusy={isBusy}
+            />
+          ) : (
+            <HumanGatePanel
+              key={`gate-${successCriteria.join("|")}-${pauseReason}`}
+              isOpen={isPaused && pauseReason === "criteria_review"}
+              initialCriteria={
+                successCriteria.length > 0
+                  ? successCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n")
+                  : ""
+              }
+              onApprove={(text) => approveCriteria(text)}
               isBusy={isBusy}
             />
           )}

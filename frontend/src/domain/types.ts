@@ -22,6 +22,7 @@ export interface FileNode {
 
 /** Matches backend WorkflowEvent.event_type values (+ UI-only prepared). */
 export type UiEventType =
+  | "prepared"
   | "run_started"
   | "node_started"
   | "node_completed"
