@@ -5,6 +5,8 @@ WORKDIR /app
 # Install system dependencies if required
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install python dependencies
@@ -18,4 +20,5 @@ EXPOSE 8000
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Default is production-style (no --reload). Dev compose overrides this.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

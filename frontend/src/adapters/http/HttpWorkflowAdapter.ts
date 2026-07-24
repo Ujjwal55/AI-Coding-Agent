@@ -120,4 +120,23 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
     });
     return parseJson<WorkflowRunRecord>(res);
   }
+
+  async pauseActive(): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/workflows/pause_active`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to pause active: ${res.statusText}`);
+    }
+  }
+
+  async fetchMetadata(): Promise<Record<string, any>> {
+    const res = await fetch(`${this.baseUrl}/api/workflows/metadata?_t=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch metadata: ${res.statusText}`);
+    }
+    return res.json();
+  }
 }

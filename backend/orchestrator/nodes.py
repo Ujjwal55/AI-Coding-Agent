@@ -5,6 +5,7 @@ import os
 from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
+from utils.metadata_tracker import record_llm_metrics, add_files_touched
 
 logger = get_logger(__name__)
 
@@ -127,9 +128,11 @@ Reference actual files and structures from the codebase summary provided."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])
+
         plan = normalize_llm_content(response.content)
 
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("planner", metrics)
         current_usage = state.get("llm_usage") or understand_updates.get("llm_usage")
         updated_usage = aggregate_llm_usage(current_usage, metrics)
         usage_updates = {"llm_usage": updated_usage}
@@ -210,7 +213,6 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
     model_name = config.get("model", "gemini-2.5-flash")
-    extra_instructions = (config.get("instructions") or "").strip()
 
     if not workspace_id:
         return {
@@ -298,9 +300,11 @@ Please generate the code changes now."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_prompt)
         ])
+
         llm_output = normalize_llm_content(response.content)
 
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("executor", metrics)
         updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
         usage_updates = {"llm_usage": updated_usage}
         logger.info(
@@ -312,11 +316,20 @@ Please generate the code changes now."""
         changes_made = []
         import re
 
-        # Parse WRITE_FILE blocks
-        write_pattern = r'===== WRITE_FILE: (.+?) =====\n(.*?)===== END_FILE ====='
+        # Parse WRITE_FILE blocks - more forgiving regex
+        write_pattern = r'={3,6}\s*WRITE_FILE:\s*(.+?)\s*={3,6}\n(.*?)(?:={3,6}\s*END_FILE\s*={3,6}|$)'
         for match in re.finditer(write_pattern, llm_output, re.DOTALL):
             file_path = match.group(1).strip()
             file_content = match.group(2).strip()
+            
+            # Strip markdown code blocks if the LLM wrapped the content
+            if file_content.startswith('```'):
+                lines = file_content.split('\n')
+                if len(lines) > 1 and lines[0].startswith('```'):
+                    lines = lines[1:]
+                if len(lines) > 0 and lines[-1].strip() == '```':
+                    lines = lines[:-1]
+                file_content = '\n'.join(lines)
 
             full_path = os.path.join(workspace_path, file_path)
             # Security: ensure path stays within workspace
@@ -338,6 +351,8 @@ Please generate the code changes now."""
                 changes_made.append(f"**Modified**: `{file_path}`")
             else:
                 changes_made.append(f"**Created**: `{file_path}`")
+                
+            add_files_touched("executor", [file_path])
 
         # Parse DELETE_FILE blocks
         delete_pattern = r'===== DELETE_FILE: (.+?) ====='
@@ -349,6 +364,7 @@ Please generate the code changes now."""
             if os.path.exists(full_path):
                 os.remove(full_path)
                 changes_made.append(f"**Deleted**: `{file_path}`")
+                add_files_touched("executor", [file_path])
 
         if not changes_made:
             changes_made.append("No file changes were parsed from the LLM output. The AI may not have produced changes in the expected format.")
@@ -415,26 +431,22 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         "No file changes were parsed",
     )
     if any(marker in changes or marker in executor_output for marker in failure_markers):
-        return _validation_fail(
-            state,
-            feedback=f"Executor did not produce usable code changes.\n\n{changes or executor_output}",
-            confidence=0.2,
-        )
+        return {
+            "validation_status": "FAIL",
+            "confidence_score": 0.2,
+            "feedback": f"Executor did not produce usable code changes.\n\n{changes or executor_output}",
+        }
 
     if not workspace_id:
-        return _validation_fail(
-            state,
-            feedback="No workspace uploaded — cannot validate code changes.",
-            confidence=0.4,
-        )
+        return {
+            "validation_status": "FAIL",
+            "confidence_score": 0.4,
+            "feedback": "No workspace uploaded — cannot validate code changes.",
+        }
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
-        return _validation_fail(
-            state,
-            feedback="Workspace directory not found.",
-            confidence=0.5,
-        )
+        return {"validation_status": "FAIL", "confidence_score": 0.5, "feedback": "Workspace directory not found."}
 
     errors = []
 
@@ -470,10 +482,16 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     if errors:
         feedback = "## Validation Errors\n\n" + "\n".join(f"- {e}" for e in errors)
-        return _validation_fail(state, feedback=feedback, confidence=0.3)
+        return {
+            "validation_status": "FAIL",
+            "confidence_score": 0.3,
+            "feedback": feedback,
+        }
 
     # Check attempt limits
-    if state.get("current_attempt", 0) >= state.get("max_attempts", 3):
+    config = state.get("_current_node_config", {})
+    max_retries = int(config.get("maxRetries", 3))
+    if state.get("current_attempt", 0) >= max_retries:
         return {
             "validation_status": "PASS",
             "confidence_score": 0.7,

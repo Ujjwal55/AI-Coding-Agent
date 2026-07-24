@@ -15,6 +15,14 @@ from agents.decision import (
 from utils.logger import get_logger
 from utils.broadcaster import broadcast_event
 
+try:
+    from langgraph.errors import NodeInterrupt
+except ImportError:
+    class NodeInterrupt(Exception):
+        pass
+
+import orchestrator.runtime as runtime_state
+
 logger = get_logger(__name__)
 
 NODE_MAP = {
@@ -44,6 +52,14 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             "status": "in_progress"
         })
         
+        # Check if pause was requested
+        if getattr(runtime_state, "GLOBAL_PAUSE_REQUESTED", False):
+            runtime_state.GLOBAL_PAUSE_REQUESTED = False
+            logger.info("Halting node execution due to global pause request.", extra={"node_id": node_id})
+            raise NodeInterrupt("user_paused")
+            
+        from utils.metadata_tracker import start_node, end_node
+        start_node(node_type)
         try:
             result = await base_func(state)
             if not isinstance(result, dict):
@@ -75,6 +91,8 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
                 "error": str(e)
             })
             raise e
+        finally:
+            end_node(node_type)
 
     return wrapper
 
@@ -94,10 +112,15 @@ def build_dynamic_graph(graph_json: dict):
         
         if node_type == "objective":
             async def dummy_objective(state: GraphState, nid=node_id, ndata=node.get("data", {})):
+                from utils.metadata_tracker import start_node, end_node
                 label = ndata.get("label", "Objective")
                 logger.info(f"⚡ [START] Objective Node processing... ({nid})", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "in_progress"})
-                await asyncio.sleep(2)
+                start_node("objective")
+                try:
+                    await asyncio.sleep(2)
+                finally:
+                    end_node("objective")
                 logger.info(f"✅ [FINISH] Objective Node completed", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "completed"})
                 return {}

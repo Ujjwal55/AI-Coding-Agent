@@ -91,6 +91,16 @@ export interface TimelineStep {
   status: NodeRunStatus;
 }
 
+export interface NodeMetadata {
+  execution_time_sec: number;
+  model_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  estimated_cost: number;
+  files_touched: string[];
+}
+
 export interface ConsoleLine {
   id: string;
   timestamp: string;

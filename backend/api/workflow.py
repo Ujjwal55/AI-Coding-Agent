@@ -6,11 +6,29 @@ from models.workflow import Workflow, WorkflowVersion, WorkflowRun
 from schemas.workflow import WorkflowCreate, WorkflowRead, WorkflowVersionCreate, WorkflowVersionRead, WorkflowRunRead
 import uuid
 
+import asyncio
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+ACTIVE_RUN_TASKS = {}
+
+@router.post("/pause_active")
+async def pause_active_workflow():
+    """Cancels the currently running workflow task immediately."""
+    logger.info("Global pause requested by user. Cancelling active tasks.")
+    for task in ACTIVE_RUN_TASKS.values():
+        task.cancel()
+    return {"status": "pause_requested"}
+
+
+@router.get("/metadata")
+async def get_node_metadata():
+    """Returns the globally tracked node metadata."""
+    from utils.metadata_tracker import get_metadata
+    return get_metadata()
 
 @router.post("/", response_model=WorkflowRead)
 async def create_workflow(workflow: WorkflowCreate, db: AsyncSession = Depends(get_db)):
@@ -63,15 +81,12 @@ class RunRequest(BaseModel):
     objective: Optional[str] = None
     success_criteria: Optional[List[str]] = None
     max_plan_revisions: Optional[int] = None
+    repo_path: Optional[str] = None
 
 class ResumeRequest(BaseModel):
     state_updates: Optional[Dict[str, Any]] = None
     action: Optional[str] = None  # "approve_plan", "send_plan_feedback", "approve_code", "request_code_changes"
     feedback: Optional[str] = None
-
-class RunRequest(BaseModel):
-    objective: Optional[str] = None
-    repo_path: Optional[str] = None
 
 @router.post("/{version_id}/run", response_model=WorkflowRunRead)
 async def run_workflow(
@@ -94,13 +109,20 @@ async def run_workflow(
         "objective": (request.objective or "").strip() or "Build the feature",
         "repo_path": (request.repo_path or "").strip() or "target_repo",
         "current_attempt": 0,
-        "success_criteria": [],
+        "success_criteria": request.success_criteria or [],
         "messages": [],
     }
 
     # Delegate to runtime manager
-    run = await execute_workflow(version_id, db, str(run.id), initial_state)
-    
+    task = asyncio.create_task(
+        execute_workflow(version_id, db, str(run.id), initial_state=initial_state, workspace_id=request.workspace_id)
+    )
+    ACTIVE_RUN_TASKS[str(run.id)] = task
+    try:
+        run = await task
+    finally:
+        ACTIVE_RUN_TASKS.pop(str(run.id), None)
+
     return run
 
 @router.post("/{run_id}/resume", response_model=WorkflowRunRead)
@@ -157,7 +179,13 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
         config = {"configurable": {"thread_id": run_id}}
         compiled_graph.update_state(config, state_updates)
     
-    run = await execute_workflow(run.version_id, db, str(run.id))
+    task = asyncio.create_task(execute_workflow(run.version_id, db, str(run.id)))
+    ACTIVE_RUN_TASKS[str(run.id)] = task
+    try:
+        run = await task
+    finally:
+        ACTIVE_RUN_TASKS.pop(str(run.id), None)
+        
     logger.info("Resumed workflow execution completed", extra={"run_id": str(run.id), "status": run.status})
     return run
 

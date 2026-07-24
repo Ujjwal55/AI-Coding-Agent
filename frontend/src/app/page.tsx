@@ -155,11 +155,8 @@ export default function ControlPlanePage() {
     currentPlan,
     planRevision,
     codeChangesSummary,
-<<<<<<< HEAD
     successCriteria,
-=======
     llmUsage,
->>>>>>> aniket
     lastError,
     isBusy,
     isGraphLocked,
@@ -169,6 +166,9 @@ export default function ControlPlanePage() {
     approveCode,
     requestCodeChanges,
     approveCriteria,
+    cancelLocal,
+    pauseLocal,
+    resumeLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
   const [consoleExpanded, setConsoleExpanded] = useState(false);
@@ -506,6 +506,39 @@ export default function ControlPlanePage() {
     });
   };
 
+  const handleRunOrResume = () => {
+    if (runStatus === "paused") {
+      resumeLocal();
+    } else {
+      handleRun();
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!mission.objective.trim()) {
+      alert("Enter an objective before Run.");
+      return;
+    }
+    if (runStatus === "running") {
+      await pauseLocal();
+    }
+    cancelLocal();
+    eventsPort.reset();
+    
+    // Explicitly reset the status in the base nodes state
+    setNodes((nds) => 
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, status: "pending" }
+      }))
+    );
+  };
+
+  const handleCancel = () => {
+    cancelLocal();
+    eventsPort.reset();
+  };
+
   const downloadUrl = mission.workspaceId
     ? workflowApi.downloadUrl(mission.workspaceId)
     : null;
@@ -538,11 +571,8 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
-<<<<<<< HEAD
         importError={importError}
-=======
         llmUsage={llmUsage}
->>>>>>> aniket
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value }))
         }
@@ -551,7 +581,9 @@ export default function ControlPlanePage() {
         onExport={handleExport}
         onImportFile={handleImportFile}
         onPrepare={handlePrepare}
-        onRun={handleRun}
+        onRun={handleRunOrResume}
+        onPause={pauseLocal}
+        onRestart={handleRestart}
       />
 
       {lastError && (
@@ -581,6 +613,7 @@ export default function ControlPlanePage() {
           selectedNode={selectedNode}
           executionView={executionView}
           onUpdateData={updateNodeData}
+          fetchMetadata={workflowApi.fetchMetadata.bind(workflowApi)}
         />
       </div>
 
@@ -602,13 +635,8 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
-<<<<<<< HEAD
             expanded={consoleExpanded}
             onToggleExpand={() => setConsoleExpanded((v) => !v)}
-=======
-            llmUsage={llmUsage}
-            onCancel={handleCancel}
->>>>>>> aniket
           />
         </div>
 

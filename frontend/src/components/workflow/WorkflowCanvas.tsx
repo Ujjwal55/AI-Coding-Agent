@@ -11,6 +11,7 @@ import {
   type OnEdgesChange,
   type OnConnect,
   type ReactFlowInstance,
+  type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import CustomNode from "@/components/CustomNode";
@@ -43,6 +44,21 @@ export default function WorkflowCanvas({
   onDrop,
   onDragOver,
 }: WorkflowCanvasProps) {
+
+  const handleNodesChange = (changes: NodeChange[]) => {
+    if (locked) {
+      // Only allow selection and dimension updates while running
+      const allowed = changes.filter(
+        (c) => c.type === "select" || c.type === "dimensions"
+      );
+      if (allowed.length > 0) {
+        onNodesChange(allowed);
+      }
+      return;
+    }
+    onNodesChange(changes);
+  };
+
   return (
     <div className="relative min-h-0 flex-1 bg-slate-50">
       {locked && (
@@ -56,7 +72,7 @@ export default function WorkflowCanvas({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          onNodesChange={locked ? () => undefined : onNodesChange}
+          onNodesChange={handleNodesChange}
           onEdgesChange={locked ? () => undefined : onEdgesChange}
           onConnect={locked ? () => undefined : onConnect}
           onInit={onInit}

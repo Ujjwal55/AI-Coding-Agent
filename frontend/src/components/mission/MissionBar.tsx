@@ -1,33 +1,27 @@
 "use client";
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-import { useRef } from "react";
-import type { MissionState, RunStatus } from "@/domain/types";
+import { useEffect, useRef, useState } from "react";
+import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
 import {
-  Download,
+  Coins,
   FolderGit2,
   FolderPlus,
   Loader2,
   Play,
-  Upload,
   Wrench,
+  Upload,
+  Download,
+  Pause,
+  RotateCcw,
+  Zap,
 } from "lucide-react";
-=======
-import { useEffect, useRef, useState } from "react";
-import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
-import { Coins, FolderGit2, FolderPlus, Loader2, Play, Wrench, Zap } from "lucide-react";
->>>>>>> aniket
 
 interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
-<<<<<<< HEAD
   importError?: string | null;
-=======
   llmUsage?: LlmUsage | null;
->>>>>>> aniket
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -35,6 +29,8 @@ interface MissionBarProps {
   onImportFile: (file: File) => void;
   onPrepare: () => void;
   onRun: () => void;
+  onPause: () => void;
+  onRestart: () => void;
 }
 
 // Enables selecting a whole directory in the file picker (Chromium/WebKit).
@@ -47,11 +43,8 @@ export default function MissionBar({
   mission,
   runStatus,
   isBusy,
-<<<<<<< HEAD
   importError,
-=======
   llmUsage,
->>>>>>> aniket
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
@@ -59,6 +52,8 @@ export default function MissionBar({
   onImportFile,
   onPrepare,
   onRun,
+  onPause,
+  onRestart,
 }: MissionBarProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +140,18 @@ export default function MissionBar({
           Empty workspace
         </button>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.[0]) {
+              onImportFile(e.target.files[0]);
+            }
+            e.target.value = "";
+          }}
+        />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -180,20 +187,28 @@ export default function MissionBar({
           className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play className="h-4 w-4" />
-          Run
+          {runStatus === "paused" ? "Resume" : "Run"}
         </button>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) onImportFile(file);
-          }}
-        />
+        <button
+          type="button"
+          onClick={onPause}
+          disabled={runStatus !== "running"}
+          className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Pause className="h-4 w-4" />
+          Pause
+        </button>
+
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={isBusy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Restart
+        </button>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
