@@ -155,7 +155,11 @@ export default function ControlPlanePage() {
     currentPlan,
     planRevision,
     codeChangesSummary,
+<<<<<<< HEAD
     successCriteria,
+=======
+    llmUsage,
+>>>>>>> aniket
     lastError,
     isBusy,
     isGraphLocked,
@@ -570,7 +574,11 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
+<<<<<<< HEAD
         importError={importError}
+=======
+        llmUsage={llmUsage}
+>>>>>>> aniket
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value }))
         }
@@ -633,8 +641,13 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
+<<<<<<< HEAD
             expanded={consoleExpanded}
             onToggleExpand={() => setConsoleExpanded((v) => !v)}
+=======
+            llmUsage={llmUsage}
+            onCancel={handleCancel}
+>>>>>>> aniket
           />
         </div>
 

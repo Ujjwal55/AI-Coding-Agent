@@ -2,7 +2,7 @@ from orchestrator.state import GraphState
 from typing import Dict, Any, Optional
 import asyncio
 import os
-from agents.llm import get_llm, normalize_llm_content
+from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
 from utils.metadata_tracker import start_node, end_node, add_llm_usage, add_files_touched
@@ -122,6 +122,7 @@ Reference actual files and structures from the codebase summary provided."""
             f"*Note: {reason}*"
         )
 
+    usage_updates = {}
     try:
         response = await llm.ainvoke([
             SystemMessage(content=system_prompt),
@@ -139,6 +140,15 @@ Reference actual files and structures from the codebase summary provided."""
 
         plan = normalize_llm_content(response.content)
 
+        metrics = extract_llm_metrics(response, model_name)
+        current_usage = state.get("llm_usage") or understand_updates.get("llm_usage")
+        updated_usage = aggregate_llm_usage(current_usage, metrics)
+        usage_updates = {"llm_usage": updated_usage}
+        logger.info(
+            f"📊 LLM Call Stats [Planner] | Model: {model_name} | Tokens: {metrics['total_tokens']} "
+            f"(In: {metrics['prompt_tokens']}, Out: {metrics['completion_tokens']}) | Cost: ${metrics['estimated_cost_usd']:.6f}"
+        )
+
         if not plan:
             # Circuit-breaker / tiny local models often return "" without raising.
             logger.warning("Planner returned empty content; using fallback plan")
@@ -150,6 +160,7 @@ Reference actual files and structures from the codebase summary provided."""
     skip_review = bool(state.get("skip_plan_review"))
     return {
         **understand_updates,
+        **usage_updates,
         "plan": plan,
         # Auto-approve when this is a validation-driven retry (human already OK'd a plan).
         "plan_approved": True if skip_review else False,
@@ -291,6 +302,7 @@ IMPORTANT RULES:
 
 Please generate the code changes now."""
 
+    usage_updates = {}
     try:
         response = await llm.ainvoke([
             SystemMessage(content=system_prompt),
@@ -307,6 +319,14 @@ Please generate the code changes now."""
             add_llm_usage("executor", actual_model, in_tok, out_tok, cached_tok)
             
         llm_output = normalize_llm_content(response.content)
+
+        metrics = extract_llm_metrics(response, model_name)
+        updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
+        usage_updates = {"llm_usage": updated_usage}
+        logger.info(
+            f"📊 LLM Call Stats [Executor] | Model: {model_name} | Tokens: {metrics['total_tokens']} "
+            f"(In: {metrics['prompt_tokens']}, Out: {metrics['completion_tokens']}) | Cost: ${metrics['estimated_cost_usd']:.6f}"
+        )
 
         # Parse LLM output and write files
         changes_made = []
@@ -359,6 +379,7 @@ Please generate the code changes now."""
         code_changes_summary = "## Code Changes Made\n\n" + "\n".join(f"- {c}" for c in changes_made)
 
         return {
+            **usage_updates,
             "executor_output": llm_output,
             "current_attempt": state.get("current_attempt", 0) + 1,
             "artifacts": [{"file": c, "diff": "modified"} for c in changes_made],

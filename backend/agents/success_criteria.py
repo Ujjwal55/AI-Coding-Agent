@@ -2,7 +2,7 @@ from typing import Dict, Any
 import asyncio
 import os
 from orchestrator.state import GraphState
-from agents.llm import get_llm, normalize_llm_content
+from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
 
@@ -31,6 +31,7 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
     instructions = config.get("instructions", "You are an expert engineer. Generate 3 concise success criteria for the objective. Output them as a simple list.")
     
     llm = get_llm(model_name)
+    usage_updates = {}
 
     try:
         response = await llm.ainvoke([
@@ -42,6 +43,14 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
         # Split by newlines and clean up
         generated_criteria = [c.strip("- *1234567890.") for c in content.split("\n") if c.strip()]
         
+        metrics = extract_llm_metrics(response, model_name)
+        updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
+        usage_updates = {"llm_usage": updated_usage}
+        logger.info(
+            f"📊 LLM Call Stats [Criteria] | Model: {model_name} | Tokens: {metrics['total_tokens']} "
+            f"(In: {metrics['prompt_tokens']}, Out: {metrics['completion_tokens']}) | Cost: ${metrics['estimated_cost_usd']:.6f}"
+        )
+
         if not generated_criteria:
             raise ValueError("No criteria generated")
 
@@ -56,4 +65,5 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
             "No regression issues found"
         ]
 
-    return {"success_criteria": generated_criteria}
+    return {"success_criteria": generated_criteria, **usage_updates}
+
