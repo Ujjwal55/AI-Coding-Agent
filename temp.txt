@@ -11,11 +11,18 @@
 
 
 
-1. human modification 
-2. deletion of the node 
+1. human modification
+2. deletion of the node case handling 
 3. ui console draggable : 
-    console 
-    timeline 
+    console  
     human criteria edit 
-4. import/export json 
-5. human intervention handling logic 
+4. import/export json  
+6. pause button 
+7. cost analysis 
+8. timing of the every step 
+9. node analysis after clicking on every node 
+10. deploy to a ec2 instance
+
+timeline horizontal scroll 
+
+create a python function to print number from 1 to 100 
