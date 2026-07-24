@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Node } from "@xyflow/react";
 import { getNodeTypeDefinition } from "@/application/nodeRegistry";
 import type { NodeExecutionView, NodeMetadata } from "@/domain/types";
-import { useEffect, useRef } from "react";
 
 interface NodeInspectorProps {
   selectedNode: Node | null;
   executionView: NodeExecutionView | null;
   onUpdateData: (id: string, key: string, value: string) => void;
-  fetchMetadata?: () => Promise<Record<string, any>>;
+  fetchMetadata?: () => Promise<Record<string, NodeMetadata>>;
 }
 
 const MODEL_OPTIONS = [
@@ -22,6 +21,15 @@ const MODEL_OPTIONS = [
   { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Groq)" },
   { value: "llama-3.1-8b-instant", label: "Llama 3.1 8B Instant (Groq)" },
 ];
+
+function hasLlmTelemetry(meta: NodeMetadata): boolean {
+  return Boolean(
+    meta.model_name ||
+      meta.input_tokens > 0 ||
+      meta.output_tokens > 0 ||
+      meta.estimated_cost > 0,
+  );
+}
 
 export default function NodeInspector({
   selectedNode,
@@ -35,25 +43,29 @@ export default function NodeInspector({
   const fetchMetaRef = useRef(fetchMetadata);
   fetchMetaRef.current = fetchMetadata;
 
-  useEffect(() => {
-    if (!selectedNode) return;
+  const selectedNodeId = selectedNode?.id ?? null;
+  const selectedNodeType = selectedNode
+    ? String(selectedNode.data.nodeType || "")
+    : "";
 
-    setMetadata(null); // Clear old metadata when node changes
+  useEffect(() => {
+    if (!selectedNodeId || !selectedNodeType) {
+      setMetadata(null);
+      return;
+    }
+
+    setMetadata(null);
     let mounted = true;
     let isFirstLoad = true;
-    
+
     const load = async () => {
       if (!fetchMetaRef.current) return;
       try {
         if (isFirstLoad) setLoadingMeta(true);
         const allMeta = await fetchMetaRef.current();
         if (!mounted) return;
-        const nodeType = selectedNode.data.nodeType as string;
-        if (allMeta[nodeType]) {
-          setMetadata(allMeta[nodeType]);
-        } else {
-          setMetadata(null);
-        }
+        const nodeMeta = allMeta[selectedNodeType];
+        setMetadata(nodeMeta ?? null);
       } catch (e) {
         console.error("Failed to fetch metadata", e);
       } finally {
@@ -70,7 +82,7 @@ export default function NodeInspector({
       mounted = false;
       clearInterval(interval);
     };
-  }, [selectedNode]);
+  }, [selectedNodeId, selectedNodeType]);
 
   if (!selectedNode) {
     return (
@@ -88,9 +100,10 @@ export default function NodeInspector({
     );
   }
 
-  const nodeType = String(selectedNode.data.nodeType || "");
+  const nodeType = selectedNodeType;
   const def = getNodeTypeDefinition(nodeType);
   const fields = def?.configFields ?? ["label"];
+  const showLlm = metadata ? hasLlmTelemetry(metadata) : false;
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-white">
@@ -222,7 +235,9 @@ export default function NodeInspector({
             <div className="rounded border border-slate-200 bg-slate-50 p-2 text-center">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Duration</div>
               <div className="mt-1 font-medium text-slate-800">
-                {metadata?.execution_time_sec ? `${metadata.execution_time_sec}s` : "-"}
+                {metadata?.execution_time_sec != null && metadata.execution_time_sec > 0
+                  ? `${metadata.execution_time_sec}s`
+                  : "-"}
               </div>
             </div>
           </div>
@@ -231,7 +246,7 @@ export default function NodeInspector({
             <div className="animate-pulse flex space-x-4 p-4 items-center justify-center">
               <div className="h-4 bg-slate-200 rounded w-24"></div>
             </div>
-          ) : metadata ? (
+          ) : showLlm && metadata ? (
             <>
               <Field label="Model">
                 <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-800 text-xs font-mono">
@@ -245,7 +260,6 @@ export default function NodeInspector({
                     <span>Input: {metadata.input_tokens.toLocaleString()}</span>
                     <span>Output: {metadata.output_tokens.toLocaleString()}</span>
                   </div>
-                  {/* Progress Bar representation */}
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden flex">
                     <div 
                       className="h-full bg-blue-500" 
@@ -280,6 +294,10 @@ export default function NodeInspector({
                 </Field>
               )}
             </>
+          ) : metadata ? (
+            <div className="text-center p-3 text-xs text-slate-500 border border-dashed border-slate-200 rounded">
+              Step ran ({metadata.execution_time_sec}s) — no LLM call for this node.
+            </div>
           ) : (
             <div className="text-center p-4 text-xs text-slate-500 italic border border-dashed border-slate-200 rounded">
               No telemetry metadata available yet.

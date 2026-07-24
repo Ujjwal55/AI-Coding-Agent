@@ -61,6 +61,8 @@ async def execute_workflow(
             logger.info("Resuming execution from checkpoint", extra={"run_id": run_id, "next_nodes": snapshot.next})
             final_state = await compiled_graph.ainvoke(None, config)
         else:
+            from utils.metadata_tracker import clear_metadata
+            clear_metadata()
             logger.info("Starting fresh graph execution", extra={"run_id": run_id})
             final_state = await compiled_graph.ainvoke(state, config)
             

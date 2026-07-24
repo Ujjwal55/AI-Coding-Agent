@@ -6,6 +6,7 @@ from orchestrator.state import GraphState
 from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
+from utils.metadata_tracker import record_llm_metrics
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,7 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
         generated_criteria = [c.strip("- *1234567890.") for c in content.split("\n") if c.strip()]
         
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("criteria", metrics)
         updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
         usage_updates = {"llm_usage": updated_usage}
         logger.info(

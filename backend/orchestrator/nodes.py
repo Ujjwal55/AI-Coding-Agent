@@ -5,7 +5,7 @@ import os
 from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
-from utils.metadata_tracker import start_node, end_node, add_llm_usage, add_files_touched
+from utils.metadata_tracker import record_llm_metrics, add_files_touched
 
 logger = get_logger(__name__)
 
@@ -128,19 +128,11 @@ Reference actual files and structures from the codebase summary provided."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])
-        
-        # Capture metadata
-        if hasattr(response, "response_metadata"):
-            usage = response.response_metadata.get("token_usage", {})
-            in_tok = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            out_tok = usage.get("completion_tokens", usage.get("output_tokens", 0))
-            cached_tok = usage.get("cached_tokens", 0)
-            actual_model = response.response_metadata.get("model_name", model_name)
-            add_llm_usage("planner", actual_model, in_tok, out_tok, cached_tok)
 
         plan = normalize_llm_content(response.content)
 
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("planner", metrics)
         current_usage = state.get("llm_usage") or understand_updates.get("llm_usage")
         updated_usage = aggregate_llm_usage(current_usage, metrics)
         usage_updates = {"llm_usage": updated_usage}
@@ -308,19 +300,11 @@ Please generate the code changes now."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_prompt)
         ])
-        
-        # Capture metadata
-        if hasattr(response, "response_metadata"):
-            usage = response.response_metadata.get("token_usage", {})
-            in_tok = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            out_tok = usage.get("completion_tokens", usage.get("output_tokens", 0))
-            cached_tok = usage.get("cached_tokens", 0)
-            actual_model = response.response_metadata.get("model_name", model_name)
-            add_llm_usage("executor", actual_model, in_tok, out_tok, cached_tok)
-            
+
         llm_output = normalize_llm_content(response.content)
 
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("executor", metrics)
         updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
         usage_updates = {"llm_usage": updated_usage}
         logger.info(

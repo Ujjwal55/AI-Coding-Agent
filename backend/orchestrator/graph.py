@@ -112,10 +112,15 @@ def build_dynamic_graph(graph_json: dict):
         
         if node_type == "objective":
             async def dummy_objective(state: GraphState, nid=node_id, ndata=node.get("data", {})):
+                from utils.metadata_tracker import start_node, end_node
                 label = ndata.get("label", "Objective")
                 logger.info(f"⚡ [START] Objective Node processing... ({nid})", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "in_progress"})
-                await asyncio.sleep(2)
+                start_node("objective")
+                try:
+                    await asyncio.sleep(2)
+                finally:
+                    end_node("objective")
                 logger.info(f"✅ [FINISH] Objective Node completed", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "completed"})
                 return {}

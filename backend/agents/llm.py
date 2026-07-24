@@ -213,9 +213,21 @@ def extract_llm_metrics(response: Any, model_name: str = "default") -> dict:
         res_meta = getattr(response, "response_metadata", {}) or {}
         usage = res_meta.get("token_usage") or res_meta.get("usage") or {}
 
-    prompt_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
-    completion_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
-    total_tokens = usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+    # usage_metadata may be a dict or a LangChain object with attributes
+    def _usage_get(key: str, default: int = 0) -> int:
+        if isinstance(usage, dict):
+            val = usage.get(key, default)
+        else:
+            val = getattr(usage, key, default)
+        try:
+            return int(val or 0)
+        except (TypeError, ValueError):
+            return default
+
+    prompt_tokens = _usage_get("input_tokens") or _usage_get("prompt_tokens")
+    completion_tokens = _usage_get("output_tokens") or _usage_get("completion_tokens")
+    total_tokens = _usage_get("total_tokens") or (prompt_tokens + completion_tokens)
+    cached_tokens = _usage_get("cache_read_input_tokens") or _usage_get("cached_tokens")
 
     # Calculate pricing
     model_key = model_name.lower()
@@ -233,6 +245,7 @@ def extract_llm_metrics(response: Any, model_name: str = "default") -> dict:
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
         "estimated_cost_usd": round(cost_usd, 6),
     }
 

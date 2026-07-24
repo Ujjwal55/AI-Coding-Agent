@@ -6,6 +6,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from orchestrator.state import GraphState
 from utils.logger import get_logger
+from utils.metadata_tracker import record_llm_metrics
 
 logger = get_logger(__name__)
 
@@ -111,6 +112,7 @@ Keep your analysis concise but thorough. This summary will be used by another AI
         response = await llm.ainvoke(messages)
 
         metrics = extract_llm_metrics(response, model_name)
+        record_llm_metrics("code_understanding", metrics)
         updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
         logger.info(
             f"📊 LLM Call Stats [CodeUnderstanding] | Model: {model_name} | Tokens: {metrics['total_tokens']} "
