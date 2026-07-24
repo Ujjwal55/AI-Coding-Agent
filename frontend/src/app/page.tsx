@@ -487,12 +487,14 @@ export default function ControlPlanePage() {
     }
     cancelLocal();
     eventsPort.reset();
-    // Start run immediately
-    await startRun(nodes, edges, {
-      objective: mission.objective,
-      workspaceId: mission.workspaceId,
-      maxPlanRevisions: 3,
-    });
+    
+    // Explicitly reset the status in the base nodes state
+    setNodes((nds) => 
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, status: "pending" }
+      }))
+    );
   };
 
   const handleRunOrResume = () => {
