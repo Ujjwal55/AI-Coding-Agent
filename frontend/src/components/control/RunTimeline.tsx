@@ -13,6 +13,75 @@ const GAP = 24;
 const TIGER_SIZE = 40;
 
 function isActiveStatus(status: string) {
+  return status === "running" || status === "in_progress";
+}
+
+function segmentFill(status: string, nextStatus: string) {
+  if (status === "completed" && (nextStatus === "completed" || nextStatus === "running" || nextStatus === "in_progress" || nextStatus === "waiting")) {
+    return "bg-emerald-500";
+  }
+  return "bg-slate-200";
+}
+
+function nodeDotClass(status: string) {
+  switch (status) {
+    case "completed":
+      return "bg-emerald-500 border-emerald-300";
+    case "running":
+    case "in_progress":
+      return "bg-amber-400 border-amber-200 animate-pulse";
+    case "waiting":
+      return "bg-amber-400 border-amber-200";
+    case "failed":
+      return "bg-red-500 border-red-300";
+    default:
+      return "bg-slate-300 border-slate-200";
+  }
+}
+
+export default function RunTimeline({ steps, runStatus }: RunTimelineProps) {
+  const stepRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const [tigerLeft, setTigerLeft] = useState(0);
+  const [showTiger, setShowTiger] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }, []);
+
+  const trackWidth = steps.length > 0 ? steps.length * STEP_W + (steps.length - 1) * GAP : 0;
+
+  useEffect(() => {
+    if (steps.length === 0) {
+      setShowTiger(false);
+      return;
+    }
+    
+    // Find active step index
+    let activeIndex = steps.findIndex(s => isActiveStatus(s.status || ""));
+    if (activeIndex === -1) {
+      activeIndex = steps.findIndex(s => s.status === "waiting");
+    }
+    if (activeIndex === -1 && runStatus === "completed") {
+      activeIndex = steps.length - 1; // At the end
+    }
+    if (activeIndex === -1) {
+      activeIndex = 0; // default to first
+    }
+
+    const activeRef = stepRefs.current[activeIndex];
+    if (activeRef) {
+      // The left position of the tiger is center of the active step
+      setTigerLeft(activeIndex * (STEP_W + GAP) + STEP_W / 2);
+      setShowTiger(true);
+      
+      // Auto-scroll logic if needed
+      activeRef.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  }, [steps, runStatus]);
+
+  const bob = runStatus === "running" ? "animate-bounce" : "";
+
   return (
     <section className="flex flex-col bg-white w-full h-full min-w-0 border-r border-slate-200">
       <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 flex justify-between items-center">
@@ -30,7 +99,6 @@ function isActiveStatus(status: string) {
         </div>
       </div>
 
-      {/* pt reserves room for the tiger above the track (avoids overflow clip) */}
       <div className="min-h-0 flex-1 overflow-x-auto px-4 pb-3 pt-10">
         {steps.length === 0 ? (
           <p className="text-sm text-slate-400">No nodes on canvas</p>

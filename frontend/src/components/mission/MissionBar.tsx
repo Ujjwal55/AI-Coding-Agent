@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench } from "lucide-react";
+import { FolderGit2, FolderPlus, Loader2, Play, Wrench, Upload, Download } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;

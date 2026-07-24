@@ -164,7 +164,10 @@ export default function ControlPlanePage() {
     sendPlanFeedback,
     approveCode,
     requestCodeChanges,
+    approveCriteria,
     cancelLocal,
+    pauseLocal,
+    resumeLocal,
   } = useWorkflowRun({ workflowApi, eventsPort });
 
   const [consoleExpanded, setConsoleExpanded] = useState(false);
@@ -500,6 +503,34 @@ export default function ControlPlanePage() {
       workspaceId: mission.workspaceId,
       maxPlanRevisions: 3,
     });
+  };
+
+  const handleRunOrResume = () => {
+    if (runStatus === "paused") {
+      resumeLocal();
+    } else {
+      handleRun();
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!mission.objective.trim()) {
+      alert("Enter an objective before Run.");
+      return;
+    }
+    if (runStatus === "running") {
+      await pauseLocal();
+    }
+    cancelLocal();
+    eventsPort.reset();
+    
+    // Explicitly reset the status in the base nodes state
+    setNodes((nds) => 
+      nds.map((n) => ({
+        ...n,
+        data: { ...n.data, status: "pending" }
+      }))
+    );
   };
 
   const handleCancel = () => {
