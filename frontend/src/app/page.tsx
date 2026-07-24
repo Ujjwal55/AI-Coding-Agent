@@ -575,6 +575,7 @@ export default function ControlPlanePage() {
           selectedNode={selectedNode}
           executionView={executionView}
           onUpdateData={updateNodeData}
+          fetchMetadata={workflowApi.fetchMetadata.bind(workflowApi)}
         />
       </div>
 

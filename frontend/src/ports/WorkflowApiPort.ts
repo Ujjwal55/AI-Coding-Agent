@@ -56,7 +56,9 @@ export interface WorkflowApiPort {
 
   run(versionId: string, options?: RunOptions): Promise<WorkflowRunRecord>;
 
-  resume(runId: string, options?: ResumeOptions): Promise<WorkflowRunRecord>;
+  resume(runId: string, options: ResumeOptions): Promise<WorkflowRunRecord>;
 
   pauseActive(): Promise<void>;
+
+  fetchMetadata(): Promise<Record<string, any>>;
 }

@@ -24,6 +24,12 @@ async def pause_active_workflow():
     return {"status": "pause_requested"}
 
 
+@router.get("/metadata")
+async def get_node_metadata():
+    """Returns the globally tracked node metadata."""
+    from utils.metadata_tracker import get_metadata
+    return get_metadata()
+
 @router.post("/", response_model=WorkflowRead)
 async def create_workflow(workflow: WorkflowCreate, db: AsyncSession = Depends(get_db)):
     logger.info("Creating new workflow", extra={"workflow_name": workflow.name})

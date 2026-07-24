@@ -3,20 +3,42 @@
 import { useState } from "react";
 import type { Node } from "@xyflow/react";
 import { getNodeTypeDefinition } from "@/application/nodeRegistry";
-import type { NodeExecutionView } from "@/domain/types";
+import type { NodeExecutionView, NodeMetadata } from "@/domain/types";
+import { useEffect } from "react";
 
 interface NodeInspectorProps {
   selectedNode: Node | null;
   executionView: NodeExecutionView | null;
   onUpdateData: (id: string, key: string, value: string) => void;
+  fetchMetadata?: () => Promise<Record<string, any>>;
 }
 
 export default function NodeInspector({
   selectedNode,
   executionView,
   onUpdateData,
+  fetchMetadata,
 }: NodeInspectorProps) {
   const [tab, setTab] = useState<"config" | "execution">("config");
+  const [metadata, setMetadata] = useState<NodeMetadata | null>(null);
+  const [loadingMeta, setLoadingMeta] = useState(false);
+
+  useEffect(() => {
+    if (tab === "execution" && fetchMetadata && selectedNode) {
+      setLoadingMeta(true);
+      fetchMetadata()
+        .then((allMeta) => {
+          const nodeType = selectedNode.data.nodeType as string;
+          if (allMeta[nodeType]) {
+            setMetadata(allMeta[nodeType]);
+          } else {
+            setMetadata(null);
+          }
+        })
+        .catch((e) => console.error("Failed to fetch metadata", e))
+        .finally(() => setLoadingMeta(false));
+    }
+  }, [tab, selectedNode, fetchMetadata]);
 
   if (!selectedNode) {
     return (
@@ -142,21 +164,85 @@ export default function NodeInspector({
             )}
           </>
         ) : (
-          <div className="space-y-3 text-sm">
-            <Field label="Status">
-              <p className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-medium capitalize text-slate-800">
-                {executionView?.status ?? "pending"}
-              </p>
-            </Field>
-            <Field label="Last message">
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded border border-slate-200 bg-slate-50 p-2 text-center">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</div>
+                <div className="mt-1 font-medium capitalize text-slate-800">
+                  {executionView?.status ?? "pending"}
+                </div>
+              </div>
+              <div className="rounded border border-slate-200 bg-slate-50 p-2 text-center">
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Duration</div>
+                <div className="mt-1 font-medium text-slate-800">
+                  {metadata?.execution_time_sec ? `${metadata.execution_time_sec}s` : "-"}
+                </div>
+              </div>
+            </div>
+
+            {loadingMeta ? (
+              <div className="animate-pulse flex space-x-4 p-4 items-center justify-center">
+                <div className="h-4 bg-slate-200 rounded w-24"></div>
+              </div>
+            ) : metadata ? (
+              <>
+                <Field label="Model">
+                  <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-800 text-xs font-mono">
+                    {metadata.model_name || "Unknown"}
+                  </div>
+                </Field>
+
+                <Field label="Token Usage">
+                  <div className="rounded border border-slate-200 p-3 bg-white">
+                    <div className="flex justify-between mb-1 text-xs text-slate-600">
+                      <span>Input: {metadata.input_tokens.toLocaleString()}</span>
+                      <span>Output: {metadata.output_tokens.toLocaleString()}</span>
+                    </div>
+                    {/* Progress Bar representation */}
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden flex">
+                      <div 
+                        className="h-full bg-blue-500" 
+                        style={{ width: `${(metadata.input_tokens / (metadata.input_tokens + metadata.output_tokens + 0.0001)) * 100}%` }}
+                      ></div>
+                      <div 
+                        className="h-full bg-emerald-500" 
+                        style={{ width: `${(metadata.output_tokens / (metadata.input_tokens + metadata.output_tokens + 0.0001)) * 100}%` }}
+                      ></div>
+                    </div>
+                    {metadata.cached_tokens > 0 && (
+                      <div className="mt-2 text-xs text-slate-500">
+                        Cached: {metadata.cached_tokens.toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                </Field>
+
+                <Field label="Est. Cost">
+                  <div className="text-sm font-semibold text-emerald-600">
+                    ${metadata.estimated_cost.toFixed(5)}
+                  </div>
+                </Field>
+
+                {metadata.files_touched && metadata.files_touched.length > 0 && (
+                  <Field label="Files Modified">
+                    <ul className="list-disc pl-4 space-y-1 text-xs text-slate-700">
+                      {metadata.files_touched.map((f, i) => (
+                        <li key={i} className="break-all">{f}</li>
+                      ))}
+                    </ul>
+                  </Field>
+                )}
+              </>
+            ) : (
+              <div className="text-center p-4 text-xs text-slate-500 italic border border-dashed border-slate-200 rounded">
+                No telemetry metadata available yet.
+              </div>
+            )}
+
+            <Field label="Last Message">
               <p className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700">
                 {executionView?.lastMessage ?? "No execution data yet"}
               </p>
-            </Field>
-            <Field label="STDOUT">
-              <pre className="max-h-48 overflow-auto rounded border border-slate-200 bg-slate-900 p-2 text-xs text-emerald-300">
-                {executionView?.stdout ?? "# No stdout captured (mock)"}
-              </pre>
             </Field>
           </div>
         )}

@@ -5,6 +5,7 @@ import os
 from agents.llm import get_llm, normalize_llm_content
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
+from utils.metadata_tracker import start_node, end_node, add_llm_usage, add_files_touched
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,7 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     previous_plan = state.get("plan", None)
     model_name = config.get("model", "gemini-3.1-flash-lite")
 
+    start_node("planner")
     llm = get_llm(model_name)
 
     system_prompt = """You are an expert software architect and implementation planner.
@@ -110,6 +112,16 @@ Reference actual files and structures from the codebase summary provided."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])
+        
+        # Capture metadata
+        if hasattr(response, "response_metadata"):
+            usage = response.response_metadata.get("token_usage", {})
+            in_tok = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+            out_tok = usage.get("completion_tokens", usage.get("output_tokens", 0))
+            cached_tok = usage.get("cached_tokens", 0)
+            actual_model = response.response_metadata.get("model_name", model_name)
+            add_llm_usage("planner", actual_model, in_tok, out_tok, cached_tok)
+
         plan = normalize_llm_content(response.content)
 
         if not plan:
@@ -121,6 +133,7 @@ Reference actual files and structures from the codebase summary provided."""
         plan = _fallback_plan(f"LLM call failed — {str(e)[:80]}")
 
     skip_review = bool(state.get("skip_plan_review"))
+    end_node("planner")
     return {
         "plan": plan,
         # Auto-approve when this is a validation-driven retry (human already OK'd a plan).
@@ -145,7 +158,10 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     code_summary = state.get("code_summary", "")
     model_name = config.get("model", "gemini-3.1-flash-lite")
 
+    start_node("executor")
+
     if not workspace_id:
+        end_node("executor")
         return {
             "executor_output": "No workspace uploaded. Cannot execute code changes.",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -155,6 +171,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
+        end_node("executor")
         return {
             "executor_output": f"Workspace {workspace_id} not found.",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -227,6 +244,16 @@ Please generate the code changes now."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_prompt)
         ])
+        
+        # Capture metadata
+        if hasattr(response, "response_metadata"):
+            usage = response.response_metadata.get("token_usage", {})
+            in_tok = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+            out_tok = usage.get("completion_tokens", usage.get("output_tokens", 0))
+            cached_tok = usage.get("cached_tokens", 0)
+            actual_model = response.response_metadata.get("model_name", model_name)
+            add_llm_usage("executor", actual_model, in_tok, out_tok, cached_tok)
+            
         llm_output = normalize_llm_content(response.content)
 
         # Parse LLM output and write files
@@ -259,6 +286,8 @@ Please generate the code changes now."""
                 changes_made.append(f"**Modified**: `{file_path}`")
             else:
                 changes_made.append(f"**Created**: `{file_path}`")
+                
+            add_files_touched("executor", [file_path])
 
         # Parse DELETE_FILE blocks
         delete_pattern = r'===== DELETE_FILE: (.+?) ====='
@@ -270,12 +299,14 @@ Please generate the code changes now."""
             if os.path.exists(full_path):
                 os.remove(full_path)
                 changes_made.append(f"**Deleted**: `{file_path}`")
+                add_files_touched("executor", [file_path])
 
         if not changes_made:
             changes_made.append("No file changes were parsed from the LLM output. The AI may not have produced changes in the expected format.")
 
         code_changes_summary = "## Code Changes Made\n\n" + "\n".join(f"- {c}" for c in changes_made)
 
+        end_node("executor")
         return {
             "executor_output": llm_output,
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -286,6 +317,7 @@ Please generate the code changes now."""
 
     except Exception as e:
         logger.error(f"Executor LLM failed: {e}")
+        end_node("executor")
         return {
             "executor_output": f"Executor failed: {str(e)}",
             "current_attempt": state.get("current_attempt", 0) + 1,
@@ -303,6 +335,8 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
     changes = state.get("code_changes_summary") or ""
     executor_output = state.get("executor_output") or ""
 
+    start_node("validator")
+
     # If the executor itself failed / wrote nothing, do not greenlight the run.
     failure_markers = (
         "Execution failed:",
@@ -312,6 +346,7 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         "No file changes were parsed",
     )
     if any(marker in changes or marker in executor_output for marker in failure_markers):
+        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.2,
@@ -319,6 +354,7 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         }
 
     if not workspace_id:
+        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.4,
@@ -327,6 +363,7 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
+        end_node("validator")
         return {"validation_status": "FAIL", "confidence_score": 0.5, "feedback": "Workspace directory not found."}
 
     errors = []
@@ -363,6 +400,7 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     if errors:
         feedback = "## Validation Errors\n\n" + "\n".join(f"- {e}" for e in errors)
+        end_node("validator")
         return {
             "validation_status": "FAIL",
             "confidence_score": 0.3,
@@ -371,12 +409,14 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     # Check attempt limits
     if state.get("current_attempt", 0) >= state.get("max_attempts", 3):
+        end_node("validator")
         return {
             "validation_status": "PASS",
             "confidence_score": 0.7,
             "feedback": "Max attempts reached. Passing with lower confidence.",
         }
 
+    end_node("validator")
     return {
         "validation_status": "PASS",
         "confidence_score": 0.9,
