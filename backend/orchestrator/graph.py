@@ -3,9 +3,9 @@ from orchestrator.state import GraphState
 from orchestrator.nodes import planner_node, executor_node, validator_node, human_approval_node
 from agents.success_criteria import criteria_node
 from agents.decision import should_human_approve, decision_node
-import logging
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 NODE_MAP = {
     'criteria': criteria_node,
@@ -25,11 +25,11 @@ def create_node_wrapper(base_func, node_data):
 
 def build_dynamic_graph(graph_json: dict):
     """Compiles a LangGraph StateGraph dynamically from React Flow JSON."""
-    workflow = StateGraph(GraphState)
-    
     nodes = graph_json.get("nodes", [])
     edges = graph_json.get("edges", [])
+    logger.info("Building dynamic LangGraph from graph JSON", extra={"node_count": len(nodes), "edge_count": len(edges)})
     
+    workflow = StateGraph(GraphState)
     valid_node_ids = set()
     
     # 1. Add nodes

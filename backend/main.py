@@ -12,13 +12,24 @@ load_dotenv()
 from alembic.config import Config
 from alembic import command
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run Alembic DB migrations automatically on startup
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
+    logger.info("Application starting up", extra={"action": "startup"})
+    try:
+        # Run Alembic DB migrations automatically on startup
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations completed successfully")
+    except Exception as e:
+        logger.critical("Alembic migration failed during startup", extra={"error": str(e)}, exc_info=True)
+        raise e
     yield
     # Teardown
+    logger.info("Application shutting down", extra={"action": "shutdown"})
     await engine.dispose()
 
 app = FastAPI(title="AI Workflow Orchestration Platform", lifespan=lifespan)
