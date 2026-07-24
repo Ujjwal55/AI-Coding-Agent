@@ -85,8 +85,10 @@ export default function NodeInspector({
                   <option value="gemini-3.1-flash-lite">Gemini 2.5 Flash (recommended)</option>
                   <option value="gemini-3.1-flash-lite">Gemini 2.0 Flash</option>
                   <option value="gemini-flash-latest">Gemini Flash Latest</option>
-                  <option value="llama3-70b-8192">Llama 3 70B (Groq)</option>
-                  <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
+                  <option value="openai/gpt-oss-20b">GPT-OSS 20B (Groq)</option>
+                  <option value="openai/gpt-oss-120b">GPT-OSS 120B (Groq)</option>
+                  <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq)</option>
+                  <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Groq)</option>
                 </select>
               </Field>
             )}

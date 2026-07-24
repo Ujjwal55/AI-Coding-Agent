@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, Loader2, Play, Wrench } from "lucide-react";
+import { FolderGit2, FolderPlus, Loader2, Play, Wrench } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
@@ -10,6 +10,7 @@ interface MissionBarProps {
   isBusy: boolean;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
+  onEmptyWorkspace: () => void;
   onPrepare: () => void;
   onRun: () => void;
 }
@@ -26,11 +27,13 @@ export default function MissionBar({
   isBusy,
   onObjectiveChange,
   onUploadFolder,
+  onEmptyWorkspace,
   onPrepare,
   onRun,
 }: MissionBarProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
+  const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
 
   return (
     <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -59,7 +62,8 @@ export default function MissionBar({
           {...directoryProps}
           className="hidden"
           onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
+            // Allow empty folders: browsers may return 0 files; still create a workspace.
+            if (e.target.files) {
               onUploadFolder(e.target.files);
             }
             e.target.value = "";
@@ -78,6 +82,17 @@ export default function MissionBar({
             <FolderGit2 className="h-4 w-4" />
           )}
           {mission.uploading ? "Uploading…" : "Upload repo folder"}
+        </button>
+
+        <button
+          type="button"
+          onClick={onEmptyWorkspace}
+          disabled={mission.uploading || isBusy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          title="Create a blank workspace with no source files"
+        >
+          <FolderPlus className="h-4 w-4" />
+          Empty workspace
         </button>
 
         <button
@@ -109,9 +124,11 @@ export default function MissionBar({
         <Chip
           active={Boolean(mission.workspaceId)}
           label={
-            mission.workspaceId
-              ? `repo: ${mission.fileTree.filter((f) => !f.is_dir).length} files`
-              : "repo: not uploaded"
+            !mission.workspaceId
+              ? "repo: not uploaded"
+              : fileCount === 0
+                ? "repo: empty workspace"
+                : `repo: ${fileCount} files`
           }
         />
         <Chip
