@@ -8,3 +8,15 @@ venv/
 .gitignore
 workspaces/
 target_repo/
+models_cache/
+logs/
+*.db
+*.sqlite
+*.gguf
+Dockerfile
+.dockerignore
+test_*.py
+**/test_*.py
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
