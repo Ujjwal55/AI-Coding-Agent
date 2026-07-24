@@ -608,7 +608,7 @@ export default function ControlPlanePage() {
           <div className="w-1.5 h-16 rounded-full bg-slate-300 group-hover:bg-sky-500 transition-all shadow-sm" />
         </div>
 
-        <div className="flex-1 min-w-[300px] flex h-full overflow-hidden">
+        <div className="flex-1 min-w-0 flex h-full overflow-hidden">
           <RunTimeline steps={timelineSteps} />
         </div>
 
