@@ -17,16 +17,29 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     AI Planner: Generates a spec-driven implementation plan using:
     - The user's objective
     - Success criteria
-    - Code summary from the code understanding node
+    - Codebase analysis (runs understanding inline when missing)
     - Any human feedback from a previous iteration
     """
     config = state.get("_current_node_config", {})
     objective = state.get("objective", "Build feature requirement")
     criteria = state.get("success_criteria", [])
-    code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
     previous_plan = state.get("plan", None)
-    model_name = config.get("model", "gemini-3.1-flash-lite")
+    model_name = config.get("model", "gemini-2.5-flash")
+    extra_instructions = (config.get("instructions") or "").strip()
+
+    # Fold Code Understanding into Planner when no prior summary exists
+    # (e.g. simplified graphs without a separate understanding node).
+    understand_updates: Dict[str, Any] = {}
+    code_summary = (state.get("code_summary") or "").strip()
+    if not code_summary or code_summary == "No codebase context available.":
+        from agents.code_understanding import code_understanding_node
+
+        understand_updates = await code_understanding_node(state)
+        code_summary = (
+            (understand_updates.get("code_summary") or "").strip()
+            or "No codebase context available."
+        )
 
     llm = get_llm(model_name)
 
@@ -46,6 +59,9 @@ Your plan MUST include:
 
 Format the plan in clean markdown. Be specific about file paths and code changes.
 Reference actual files and structures from the codebase summary provided."""
+
+    if extra_instructions:
+        system_prompt += f"\n\nAdditional instructions from the engineer:\n{extra_instructions}"
 
     human_prompt_parts = [f"## Objective\n{objective}"]
 
@@ -122,6 +138,7 @@ Reference actual files and structures from the codebase summary provided."""
 
     skip_review = bool(state.get("skip_plan_review"))
     return {
+        **understand_updates,
         "plan": plan,
         # Auto-approve when this is a validation-driven retry (human already OK'd a plan).
         "plan_approved": True if skip_review else False,
@@ -143,7 +160,8 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     plan = state.get("plan", "No plan provided")
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
-    model_name = config.get("model", "gemini-3.1-flash-lite")
+    model_name = config.get("model", "gemini-2.5-flash")
+    extra_instructions = (config.get("instructions") or "").strip()
 
     if not workspace_id:
         return {
@@ -210,6 +228,9 @@ IMPORTANT RULES:
 - Follow the existing code style and conventions.
 - Make sure all imports are correct.
 - Do NOT wrap the file content in markdown code blocks."""
+
+    if extra_instructions:
+        system_prompt += f"\n\nAdditional instructions from the engineer:\n{extra_instructions}"
 
     human_prompt = f"""## Objective
 {objective}
@@ -294,10 +315,33 @@ Please generate the code changes now."""
         }
 
 
+def _validation_fail(
+    state: GraphState,
+    *,
+    feedback: str,
+    confidence: float,
+) -> Dict[str, Any]:
+    """FAIL payload; tags retry loops to skip plan-review HITL (replaces Decision node)."""
+    config = state.get("_current_node_config", {})
+    max_retries = int(config.get("maxRetries", 3))
+    result: Dict[str, Any] = {
+        "validation_status": "FAIL",
+        "confidence_score": confidence,
+        "feedback": feedback,
+    }
+    if state.get("current_attempt", 0) < max_retries:
+        result["skip_plan_review"] = True
+        result["plan_feedback"] = (
+            feedback or "Validation failed — revise the plan and implementation."
+        )
+    return result
+
+
 async def validator_node(state: GraphState) -> Dict[str, Any]:
     """
     Validator: Checks that modified files are syntactically valid.
     Runs basic syntax checks on Python and JavaScript files.
+    Also owns retry tagging (skip_plan_review) formerly done by Decision.
     """
     workspace_id = state.get("workspace_id")
     changes = state.get("code_changes_summary") or ""
@@ -312,22 +356,26 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         "No file changes were parsed",
     )
     if any(marker in changes or marker in executor_output for marker in failure_markers):
-        return {
-            "validation_status": "FAIL",
-            "confidence_score": 0.2,
-            "feedback": f"Executor did not produce usable code changes.\n\n{changes or executor_output}",
-        }
+        return _validation_fail(
+            state,
+            feedback=f"Executor did not produce usable code changes.\n\n{changes or executor_output}",
+            confidence=0.2,
+        )
 
     if not workspace_id:
-        return {
-            "validation_status": "FAIL",
-            "confidence_score": 0.4,
-            "feedback": "No workspace uploaded — cannot validate code changes.",
-        }
+        return _validation_fail(
+            state,
+            feedback="No workspace uploaded — cannot validate code changes.",
+            confidence=0.4,
+        )
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
-        return {"validation_status": "FAIL", "confidence_score": 0.5, "feedback": "Workspace directory not found."}
+        return _validation_fail(
+            state,
+            feedback="Workspace directory not found.",
+            confidence=0.5,
+        )
 
     errors = []
 
@@ -363,11 +411,7 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
 
     if errors:
         feedback = "## Validation Errors\n\n" + "\n".join(f"- {e}" for e in errors)
-        return {
-            "validation_status": "FAIL",
-            "confidence_score": 0.3,
-            "feedback": feedback,
-        }
+        return _validation_fail(state, feedback=feedback, confidence=0.3)
 
     # Check attempt limits
     if state.get("current_attempt", 0) >= state.get("max_attempts", 3):
