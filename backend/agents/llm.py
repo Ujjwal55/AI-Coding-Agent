@@ -124,21 +124,29 @@ def get_llm(model_name: str):
 
     # Remap unsupported OpenAI/Anthropic labels to providers we actually wire.
     if any(token in model_name for token in ("gpt", "o1", "claude", "anthropic", "openai")):
-        if os.getenv("GOOGLE_API_KEY"):
+        if os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"):
             model_name = DEFAULT_GEMINI_MODEL
         else:
             model_name = "llama3-70b-8192"
         print(f"ℹ️  Remapped unsupported model '{requested}' → '{model_name}'")
 
     if "gemini" in model_name:
-        primary_llm = ChatGoogleGenerativeAI(model=model_name)
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if api_key:
+            primary_llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
+        else:
+            primary_llm = ChatGoogleGenerativeAI(model=model_name)
     else:
         groq_model = (
             model_name
             if ("llama" in model_name or "mixtral" in model_name or "gemma" in model_name)
             else "llama3-70b-8192"
         )
-        primary_llm = ChatGroq(model_name=groq_model)
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if groq_api_key:
+            primary_llm = ChatGroq(model_name=groq_model, groq_api_key=groq_api_key)
+        else:
+            primary_llm = ChatGroq(model_name=groq_model)
 
     # Wrap primary LLM with the local fallback circuit breaker
     return primary_llm.with_fallbacks([local_fallback_runnable])
