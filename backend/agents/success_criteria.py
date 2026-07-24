@@ -2,7 +2,7 @@ from typing import Dict, Any
 import asyncio
 import os
 from orchestrator.state import GraphState
-from agents.llm import get_llm
+from agents.llm import get_llm, normalize_llm_content
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
 
@@ -25,12 +25,11 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
         logger.info("✅ [FINISH] Using user-provided criteria (Hybrid mode)", extra={"count": len(state["success_criteria"])})
         logger.debug("Provided criteria list", extra={"criteria": state["success_criteria"]})
         return {"success_criteria": state["success_criteria"]}
-
-    objective = state.get("objective", "Build feature requirement")
-    model_name = config.get("model", "gemini-1.5-pro")
-    instructions = config.get("instructions", "You are an expert engineer. Generate 3 concise success criteria for the objective.")
-
-    logger.info("Generating success criteria via LLM", extra={"objective": objective, "model": model_name})
+        
+    objective = state.get("objective", "Unknown objective")
+    model_name = config.get("model", "gemini-2.5-flash")
+    instructions = config.get("instructions", "You are an expert engineer. Generate 3 concise success criteria for the objective. Output them as a simple list.")
+    
     llm = get_llm(model_name)
 
     try:
@@ -38,10 +37,11 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
             SystemMessage(content=instructions),
             HumanMessage(content=f"Objective: {objective}")
         ])
-
-        raw_text = getattr(response, "content", str(response))
-        generated_criteria = [c.strip("- *1234567890.") for c in raw_text.split("\n") if c.strip()]
-
+        
+        content = normalize_llm_content(response.content)
+        # Split by newlines and clean up
+        generated_criteria = [c.strip("- *1234567890.") for c in content.split("\n") if c.strip()]
+        
         if not generated_criteria:
             raise ValueError("No criteria generated")
 

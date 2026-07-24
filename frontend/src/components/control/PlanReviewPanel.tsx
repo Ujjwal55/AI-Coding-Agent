@@ -43,7 +43,9 @@ export default function PlanReviewPanel({
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
           <div className="min-h-0 flex-1 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-3">
             <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-800">
-              {plan || "No plan content."}
+              {plan?.trim()
+                ? plan
+                : "No plan content yet. The planner returned an empty response — check backend logs for Circuit Breaker / API key errors, then re-run or send feedback to regenerate."}
             </pre>
           </div>
 

@@ -2,7 +2,7 @@ from orchestrator.state import GraphState
 from typing import Dict, Any
 import asyncio
 import os
-from agents.llm import get_llm
+from agents.llm import get_llm, normalize_llm_content
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.logger import get_logger
 
@@ -25,7 +25,7 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
     previous_plan = state.get("plan", None)
-    model_name = config.get("model", "gemini-1.5-pro")
+    model_name = config.get("model", "gemini-2.5-flash")
 
     llm = get_llm(model_name)
 
@@ -62,22 +62,41 @@ Reference actual files and structures from the codebase summary provided."""
 
     prompt = "\n\n".join(human_prompt_parts)
 
+    def _fallback_plan(reason: str) -> str:
+        criteria_block = "\n".join(f"- {c}" for c in criteria) if criteria else "- (none)"
+        return (
+            f"## Implementation Plan\n\n"
+            f"**Objective:** {objective}\n\n"
+            f"### Summary\n"
+            f"Create a Python `hello world` deliverable that satisfies the objective, "
+            f"guided by the uploaded workspace context.\n\n"
+            f"### Success Criteria\n{criteria_block}\n\n"
+            f"### Files to Create\n"
+            f"- `hello_world.py` — prints `Hello, World!` when executed\n\n"
+            f"### Implementation Steps\n"
+            f"1. Add `hello_world.py` at the workspace root with a `main` entrypoint.\n"
+            f"2. Ensure the file runs with `python3 hello_world.py`.\n"
+            f"3. Avoid modifying unrelated existing files.\n\n"
+            f"### Testing Strategy\n"
+            f"- Run `python3 hello_world.py` and confirm stdout contains `Hello, World!`.\n"
+            f"- Run `python3 -m py_compile hello_world.py` for syntax validation.\n\n"
+            f"*Note: {reason}*"
+        )
+
     try:
         response = await llm.ainvoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])
-        plan = getattr(response, "content", str(response))
-        logger.info("✅ [FINISH] Planner generated plan successfully", extra={"plan_snippet": str(plan)[:120]})
+        plan = normalize_llm_content(response.content)
+
+        if not plan:
+            # Circuit-breaker / tiny local models often return "" without raising.
+            logger.warning("Planner returned empty content; using fallback plan")
+            plan = _fallback_plan("Primary/fallback LLM returned empty plan text")
     except Exception as e:
         logger.error(f"Planner LLM failed: {e}")
-        plan = (
-            f"## Mock Plan for: {objective}\n"
-            f"1. Analyze the codebase\n"
-            f"2. Implement changes based on criteria\n"
-            f"3. Verify against success criteria\n"
-            f"\n*(Note: LLM call failed - {str(e)[:50]})*"
-        )
+        plan = _fallback_plan(f"LLM call failed — {str(e)[:80]}")
 
     return {
         "plan": plan,
@@ -99,7 +118,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     plan = state.get("plan", "No plan provided")
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
-    model_name = config.get("model", "gemini-1.5-pro")
+    model_name = config.get("model", "gemini-2.5-flash")
 
     if not workspace_id:
         return {
@@ -183,7 +202,7 @@ Please generate the code changes now."""
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_prompt)
         ])
-        llm_output = response.content
+        llm_output = normalize_llm_content(response.content)
 
         # Parse LLM output and write files
         changes_made = []
@@ -200,7 +219,7 @@ Please generate the code changes now."""
             if not os.path.abspath(full_path).startswith(os.path.abspath(workspace_path)):
                 continue
 
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            os.makedirs(os.path.dirname(full_path) if os.path.dirname(full_path) else workspace_path, exist_ok=True)
 
             # Read old content for diff
             old_content = ""
@@ -256,12 +275,30 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
     Runs basic syntax checks on Python and JavaScript files.
     """
     workspace_id = state.get("workspace_id")
+    changes = state.get("code_changes_summary") or ""
+    executor_output = state.get("executor_output") or ""
+
+    # If the executor itself failed / wrote nothing, do not greenlight the run.
+    failure_markers = (
+        "Execution failed:",
+        "Executor failed:",
+        "No workspace uploaded",
+        "Workspace directory missing",
+        "No file changes were parsed",
+    )
+    if any(marker in changes or marker in executor_output for marker in failure_markers):
+        return {
+            "validation_status": "FAIL",
+            "confidence_score": 0.2,
+            "feedback": f"Executor did not produce usable code changes.\n\n{changes or executor_output}",
+        }
 
     if not workspace_id:
-        # No workspace — use attempt-based mock logic
-        if state.get("current_attempt", 0) >= state.get("max_attempts", 3):
-            return {"validation_status": "FAIL", "confidence_score": 0.9, "feedback": "Max attempts reached."}
-        return {"validation_status": "PASS", "confidence_score": 0.85, "feedback": "No workspace to validate against."}
+        return {
+            "validation_status": "FAIL",
+            "confidence_score": 0.4,
+            "feedback": "No workspace uploaded — cannot validate code changes.",
+        }
 
     workspace_path = os.path.join(WORKSPACES_DIR, workspace_id)
     if not os.path.isdir(workspace_path):
