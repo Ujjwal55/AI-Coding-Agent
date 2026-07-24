@@ -8,6 +8,8 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  Node,
+  Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import CustomNode from '@/components/CustomNode';
@@ -16,7 +18,7 @@ const nodeTypes = {
   custom: CustomNode,
 };
 
-const initialNodes = [
+const initialNodes: Node[] = [
   { id: 'objective', position: { x: 250, y: 50 }, data: { label: 'Feature Request', nodeType: 'objective' }, type: 'custom' },
   { id: 'criteria', position: { x: 250, y: 150 }, data: { label: 'Define Criteria', nodeType: 'criteria' }, type: 'custom' },
   { id: 'planner', position: { x: 250, y: 250 }, data: { label: 'Create Plan', nodeType: 'planner' }, type: 'custom' },
@@ -27,7 +29,7 @@ const initialNodes = [
   { id: 'end', position: { x: 250, y: 750 }, data: { label: 'Merged', nodeType: 'end' }, type: 'custom' },
 ];
 
-const initialEdges = [
+const initialEdges: Edge[] = [
   { id: 'e1-2', source: 'objective', target: 'criteria' },
   { id: 'e2-3', source: 'criteria', target: 'planner' },
   { id: 'e3-4', source: 'planner', target: 'executor' },

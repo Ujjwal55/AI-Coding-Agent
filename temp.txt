@@ -1,0 +1,9 @@
+1. planning 
+2. code push
+3. task distribution 
+4. individual task 
+5. implement
+6. integration with other codes 
+7. testing
+8. deployement
+9. enhacements

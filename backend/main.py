@@ -5,11 +5,19 @@ from database.core import engine, Base
 import asyncio
 from contextlib import asynccontextmanager
 
+from alembic.config import Config
+from alembic import command
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Setup tables (for dev)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Run Alembic DB migrations automatically on startup
+    try:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+    except Exception as e:
+        print(f"Alembic migration notice: {e}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     yield
     # Teardown
     await engine.dispose()
