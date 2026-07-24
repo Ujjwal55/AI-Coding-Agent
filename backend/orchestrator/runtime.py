@@ -62,4 +62,5 @@ async def execute_workflow(version_id: str, db: AsyncSession, run_id: str, initi
         logger.critical("Workflow execution failed with exception", extra={"run_id": run_id, "error": str(e)}, exc_info=True)
         
     await db.commit()
+    await db.refresh(run)
     return run

@@ -3,7 +3,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI as ChatGoogleGenAI
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-from langchain_google_genai import ChatGoogleGenAI
 from langchain_community.llms import LlamaCpp
 from huggingface_hub import hf_hub_download
 from langchain_core.runnables import RunnableLambda
