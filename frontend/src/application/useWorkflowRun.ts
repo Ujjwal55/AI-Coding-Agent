@@ -21,16 +21,14 @@ interface UseWorkflowRunOptions {
 
 /** Node types considered "done" once the run pauses at a given gate. */
 const COMPLETED_BEFORE: Record<string, string[]> = {
-  plan_review: ["objective", "criteria", "code_understanding", "planner"],
+  plan_review: ["objective", "criteria", "planner"],
   code_review: [
     "objective",
     "criteria",
-    "code_understanding",
     "planner",
     "plan_review",
     "executor",
     "validator",
-    "decision",
   ],
 };
 
