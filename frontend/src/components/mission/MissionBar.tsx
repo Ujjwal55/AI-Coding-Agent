@@ -1,13 +1,14 @@
 "use client";
 
-import { useRef } from "react";
-import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
+import { Coins, FolderGit2, FolderPlus, Loader2, Play, Wrench, Zap } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
   runStatus: RunStatus;
   isBusy: boolean;
+  llmUsage?: LlmUsage | null;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -25,6 +26,7 @@ export default function MissionBar({
   mission,
   runStatus,
   isBusy,
+  llmUsage,
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
@@ -34,6 +36,30 @@ export default function MissionBar({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
+
+  const [isUsageOpen, setIsUsageOpen] = useState(false);
+  const usagePopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isUsageOpen) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (usagePopoverRef.current && !usagePopoverRef.current.contains(event.target as globalThis.Node)) {
+        setIsUsageOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsUsageOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isUsageOpen]);
 
   return (
     <header className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -136,6 +162,71 @@ export default function MissionBar({
           label={mission.prepared ? "prepared" : "not prepared"}
         />
         <Chip active={runStatus !== "idle"} label={`run: ${runStatus}`} />
+
+        {llmUsage && llmUsage.total_calls > 0 && (
+          <>
+            <div className="h-4 w-px bg-slate-300 mx-1" />
+
+            <div className="relative" ref={usagePopoverRef}>
+              <button
+                type="button"
+                onClick={() => setIsUsageOpen((open) => !open)}
+                aria-expanded={isUsageOpen}
+                className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-700 ring-1 ring-purple-200 hover:bg-purple-100"
+              >
+                <Zap className="h-3 w-3 text-purple-600" />
+                {llmUsage.total_calls} calls · ${llmUsage.estimated_cost_usd.toFixed(4)}
+              </button>
+
+              {isUsageOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border border-purple-200 bg-gradient-to-br from-purple-50 via-slate-50 to-indigo-50 p-3 shadow-lg">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-xs font-bold text-purple-900">
+                      <Zap className="h-4 w-4 text-purple-600" /> LLM Usage & Cost Telemetry
+                    </span>
+                    <span className="font-mono text-xs font-bold text-emerald-700">
+                      <Coins className="inline-block h-3.5 w-3.5 mr-1" />
+                      ${llmUsage.estimated_cost_usd.toFixed(6)} USD
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded bg-white p-1.5 border border-purple-100">
+                      <div className="text-[10px] uppercase font-semibold text-slate-400">Total Calls</div>
+                      <div className="font-bold text-purple-700">{llmUsage.total_calls}</div>
+                    </div>
+                    <div className="rounded bg-white p-1.5 border border-amber-100">
+                      <div className="text-[10px] uppercase font-semibold text-slate-400">Total Tokens</div>
+                      <div className="font-bold text-amber-700">{llmUsage.total_tokens.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded bg-white p-1.5 border border-emerald-100">
+                      <div className="text-[10px] uppercase font-semibold text-slate-400">Prompt / Out</div>
+                      <div className="font-bold text-slate-700">
+                        {llmUsage.prompt_tokens.toLocaleString()} / {llmUsage.completion_tokens.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {llmUsage.breakdown_by_model && Object.keys(llmUsage.breakdown_by_model).length > 0 && (
+                    <div className="mt-2.5 border-t border-purple-100 pt-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Model Breakdown
+                      </div>
+                      <div className="space-y-1">
+                        {Object.entries(llmUsage.breakdown_by_model).map(([model, meta]) => (
+                          <div key={model} className="flex items-center justify-between text-[11px] font-mono text-slate-600 bg-white/70 px-2 py-0.5 rounded">
+                            <span className="truncate max-w-[140px] font-semibold text-slate-800">{model}</span>
+                            <span>{meta.calls} calls | {meta.total_tokens.toLocaleString()} tok | ${meta.estimated_cost_usd.toFixed(6)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </header>
   );
@@ -144,11 +235,10 @@ export default function MissionBar({
 function Chip({ active, label }: { active: boolean; label: string }) {
   return (
     <span
-      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-        active
-          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
-      }`}
+      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${active
+        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+        : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+        }`}
     >
       {label}
     </span>

@@ -149,6 +149,7 @@ export default function ControlPlanePage() {
     currentPlan,
     planRevision,
     codeChangesSummary,
+    llmUsage,
     lastError,
     isBusy,
     isGraphLocked,
@@ -503,6 +504,7 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
+        llmUsage={llmUsage}
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value, prepared: false }))
         }
@@ -560,6 +562,7 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
+            llmUsage={llmUsage}
             onCancel={handleCancel}
           />
         </div>
