@@ -27,7 +27,7 @@ async def criteria_node(state: GraphState) -> Dict[str, Any]:
         return {"success_criteria": state["success_criteria"]}
         
     objective = state.get("objective", "Unknown objective")
-    model_name = config.get("model", "gemini-2.5-flash")
+    model_name = config.get("model", "gemini-3.1-flash-lite")
     instructions = config.get("instructions", "You are an expert engineer. Generate 3 concise success criteria for the objective. Output them as a simple list.")
     
     llm = get_llm(model_name)

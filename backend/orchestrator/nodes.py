@@ -9,6 +9,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 WORKSPACES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspaces"))
+STEP_DELAY_SECONDS = float(os.getenv("STEP_DELAY_SECONDS", "10"))
 
 
 async def planner_node(state: GraphState) -> Dict[str, Any]:
@@ -25,7 +26,7 @@ async def planner_node(state: GraphState) -> Dict[str, Any]:
     code_summary = state.get("code_summary", "No codebase context available.")
     plan_feedback = state.get("plan_feedback", None)
     previous_plan = state.get("plan", None)
-    model_name = config.get("model", "gemini-2.5-flash")
+    model_name = config.get("model", "gemini-3.1-flash-lite")
 
     llm = get_llm(model_name)
 
@@ -64,22 +65,43 @@ Reference actual files and structures from the codebase summary provided."""
 
     def _fallback_plan(reason: str) -> str:
         criteria_block = "\n".join(f"- {c}" for c in criteria) if criteria else "- (none)"
+        obj_l = (objective or "").lower()
+        # Derive a sensible filename from the objective instead of always hello_world.py
+        if "add" in obj_l or "sum" in obj_l:
+            filename = "add.py"
+            summary = "Create a Python module with an `add` function that returns the sum of its arguments."
+            steps = (
+                "1. Create `add.py` at the workspace root.\n"
+                "2. Define `def add(a, b):` (and optionally `*args`) that returns the numeric sum.\n"
+                "3. Include a small `if __name__ == '__main__':` demo that prints `add(2, 3)`.\n"
+            )
+            testing = (
+                "- Run `python3 -c \"from add import add; assert add(2, 3) == 5\"`.\n"
+                "- Run `python3 -m py_compile add.py`.\n"
+            )
+        else:
+            safe = "".join(ch if ch.isalnum() else "_" for ch in (objective or "solution")[:24]).strip("_") or "solution"
+            filename = f"{safe.lower()}.py"
+            summary = f"Implement the objective in `{filename}`: {objective}"
+            steps = (
+                f"1. Create `{filename}` at the workspace root.\n"
+                "2. Implement the requested behavior as clear functions with a small demo entrypoint.\n"
+                "3. Avoid unrelated file changes.\n"
+            )
+            testing = (
+                f"- Run `python3 -m py_compile {filename}`.\n"
+                f"- Run `python3 {filename}` and confirm it executes without errors.\n"
+            )
+
         return (
             f"## Implementation Plan\n\n"
             f"**Objective:** {objective}\n\n"
-            f"### Summary\n"
-            f"Create a Python `hello world` deliverable that satisfies the objective, "
-            f"guided by the uploaded workspace context.\n\n"
+            f"### Summary\n{summary}\n\n"
             f"### Success Criteria\n{criteria_block}\n\n"
             f"### Files to Create\n"
-            f"- `hello_world.py` — prints `Hello, World!` when executed\n\n"
-            f"### Implementation Steps\n"
-            f"1. Add `hello_world.py` at the workspace root with a `main` entrypoint.\n"
-            f"2. Ensure the file runs with `python3 hello_world.py`.\n"
-            f"3. Avoid modifying unrelated existing files.\n\n"
-            f"### Testing Strategy\n"
-            f"- Run `python3 hello_world.py` and confirm stdout contains `Hello, World!`.\n"
-            f"- Run `python3 -m py_compile hello_world.py` for syntax validation.\n\n"
+            f"- `{filename}` — implements the requested behavior\n\n"
+            f"### Implementation Steps\n{steps}\n"
+            f"### Testing Strategy\n{testing}\n"
             f"*Note: {reason}*"
         )
 
@@ -98,12 +120,15 @@ Reference actual files and structures from the codebase summary provided."""
         logger.error(f"Planner LLM failed: {e}")
         plan = _fallback_plan(f"LLM call failed — {str(e)[:80]}")
 
+    skip_review = bool(state.get("skip_plan_review"))
     return {
         "plan": plan,
-        "plan_approved": False,  # Reset approval — human must review
+        # Auto-approve when this is a validation-driven retry (human already OK'd a plan).
+        "plan_approved": True if skip_review else False,
         "plan_feedback": None,   # Clear previous feedback (consumed above)
-        "plan_revision": state.get("plan_revision", 0) + 1,  # bounded loop counter
-        "pause_reason": "plan_review",
+        "plan_revision": state.get("plan_revision", 0) + 1,
+        "skip_plan_review": False,  # consume the one-shot skip flag
+        "pause_reason": None if skip_review else "plan_review",
     }
 
 
@@ -118,7 +143,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     plan = state.get("plan", "No plan provided")
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
-    model_name = config.get("model", "gemini-2.5-flash")
+    model_name = config.get("model", "gemini-3.1-flash-lite")
 
     if not workspace_id:
         return {

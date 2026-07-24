@@ -29,6 +29,7 @@ import RunConsole from "@/components/control/RunConsole";
 import RunTimeline from "@/components/control/RunTimeline";
 import PlanReviewPanel from "@/components/control/PlanReviewPanel";
 import CodeReviewPanel from "@/components/control/CodeReviewPanel";
+import ResultPanel from "@/components/control/ResultPanel";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -43,7 +44,7 @@ const initialNodes: Node[] = [
   { id: "validator", position: stack(6), data: { label: "Validate", nodeType: "validator", status: "pending" }, type: "custom" },
   { id: "decision", position: stack(7), data: { label: "Evaluate", nodeType: "decision", status: "pending" }, type: "custom" },
   { id: "human_approval", position: stack(8), data: { label: "Review Code", nodeType: "human_gate", status: "pending" }, type: "custom" },
-  { id: "end", position: stack(9), data: { label: "Merged", nodeType: "end", status: "pending" }, type: "custom" },
+  { id: "end", position: stack(9), data: { label: "Task Successful", nodeType: "end", status: "pending" }, type: "custom" },
 ];
 
 const initialEdges: Edge[] = [
@@ -109,12 +110,24 @@ async function zipSelectedFolder(
     count++;
   }
 
-  if (count === 0) return { error: "No files found to upload after filtering." };
+  // Empty folders (or folders that only contained ignored paths like .git) are allowed.
+  // Create a valid empty zip so the backend can still allocate a workspace_id.
   const blob = await zip.generateAsync({
     type: "blob",
     compression: "DEFLATE",
   });
   return { blob, count };
+}
+
+/** Build an empty workspace zip (no source files). */
+async function zipEmptyWorkspace(): Promise<{ blob: Blob; count: number }> {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  const blob = await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+  });
+  return { blob, count: 0 };
 }
 
 export default function ControlPlanePage() {
@@ -404,11 +417,42 @@ export default function ControlPlanePage() {
         runId: null,
         eventType: "prepared",
         nodeId: null,
-        message: `Uploaded repo: ${result.count} files → workspace ${workspace_id.slice(0, 8)}`,
+        message:
+          result.count === 0
+            ? `Uploaded empty workspace → ${workspace_id.slice(0, 8)} (no source files after filtering; agents can create files here)`
+            : `Uploaded repo: ${result.count} files → workspace ${workspace_id.slice(0, 8)}`,
       });
     } catch (error) {
       alert(
         `Upload failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+      setMission((m) => ({ ...m, uploading: false }));
+    }
+  };
+
+  const handleEmptyWorkspace = async () => {
+    setMission((m) => ({ ...m, uploading: true, prepared: false }));
+    try {
+      const result = await zipEmptyWorkspace();
+      const { workspace_id, file_tree } = await workflowApi.uploadRepo(
+        result.blob,
+        "workspace.zip",
+      );
+      setMission((m) => ({
+        ...m,
+        uploading: false,
+        workspaceId: workspace_id,
+        fileTree: file_tree,
+      }));
+      eventsPort.append({
+        runId: null,
+        eventType: "prepared",
+        nodeId: null,
+        message: `Created empty workspace → ${workspace_id.slice(0, 8)}`,
+      });
+    } catch (error) {
+      alert(
+        `Failed to create empty workspace: ${error instanceof Error ? error.message : "unknown error"}`,
       );
       setMission((m) => ({ ...m, uploading: false }));
     }
@@ -435,7 +479,27 @@ export default function ControlPlanePage() {
     ? workflowApi.downloadUrl(mission.workspaceId)
     : null;
 
+  // After a successful run, refresh the workspace file list so ResultPanel can browse it.
+  useEffect(() => {
+    if (runStatus !== "completed" || !mission.workspaceId) return;
+    let cancelled = false;
+    workflowApi
+      .getWorkspaceTree(mission.workspaceId)
+      .then((res) => {
+        if (!cancelled) {
+          setMission((m) => ({ ...m, fileTree: res.file_tree }));
+        }
+      })
+      .catch(() => {
+        /* keep previous tree */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runStatus, mission.workspaceId]);
+
   const isPaused = runStatus === "paused";
+  const isCompleted = runStatus === "completed";
 
   return (
     <div className="flex h-screen w-full flex-col bg-slate-100">
@@ -447,6 +511,7 @@ export default function ControlPlanePage() {
           setMission((m) => ({ ...m, objective: value, prepared: false }))
         }
         onUploadFolder={handleUploadFolder}
+        onEmptyWorkspace={handleEmptyWorkspace}
         onPrepare={handlePrepare}
         onRun={handleRun}
       />
@@ -528,7 +593,20 @@ export default function ControlPlanePage() {
         </div>
 
         <div style={{ width: reviewWidth }} className="shrink-0 flex h-full">
-          {pauseReason === "code_review" ? (
+          {isCompleted ? (
+            <ResultPanel
+              isOpen
+              summary={codeChangesSummary}
+              downloadUrl={downloadUrl}
+              fileTree={mission.fileTree}
+              onOpenFile={async (path) => {
+                if (!mission.workspaceId) {
+                  throw new Error("No workspace uploaded");
+                }
+                return workflowApi.getWorkspaceFile(mission.workspaceId, path);
+              }}
+            />
+          ) : pauseReason === "code_review" ? (
             <CodeReviewPanel
               key={`code-${planRevision}`}
               isOpen={isPaused}

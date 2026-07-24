@@ -46,6 +46,14 @@ export interface WorkflowApiPort {
   /** URL to download the (possibly modified) workspace as a zip. */
   downloadUrl(workspaceId: string): string;
 
+  /** List files in an uploaded workspace. */
+  getWorkspaceTree(
+    workspaceId: string,
+  ): Promise<{ file_tree: FileNode[] }>;
+
+  /** Read a text file from a workspace. */
+  getWorkspaceFile(workspaceId: string, path: string): Promise<string>;
+
   run(versionId: string, options?: RunOptions): Promise<WorkflowRunRecord>;
 
   resume(runId: string, options?: ResumeOptions): Promise<WorkflowRunRecord>;

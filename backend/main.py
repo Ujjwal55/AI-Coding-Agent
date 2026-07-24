@@ -59,3 +59,15 @@ app.include_router(upload_router, prefix="/api", tags=["upload"])
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.get("/test-gemini")
+async def test_gemini(model: str = "gemini-3.1-flash-lite"):
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    try:
+        llm = ChatGoogleGenerativeAI(model=model)
+        response = await llm.ainvoke("Say 'test'")
+        return {"status": "SUCCESS", "model": model, "response": response.content}
+    except Exception as e:
+        import traceback
+        return {"status": "FAILURE", "model": model, "error": str(e), "traceback": traceback.format_exc()}
+

@@ -76,17 +76,19 @@ export default function NodeInspector({
             {fields.includes("model") && (
               <Field label="Model">
                 <select
-                  value={String(selectedNode.data.model || "gemini-2.5-flash")}
+                  value={String(selectedNode.data.model || "gemini-3.1-flash-lite")}
                   onChange={(e) =>
                     onUpdateData(selectedNode.id, "model", e.target.value)
                   }
                   className="w-full rounded border border-slate-300 p-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (recommended)</option>
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 2.5 Flash (recommended)</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 2.0 Flash</option>
                   <option value="gemini-flash-latest">Gemini Flash Latest</option>
-                  <option value="llama3-70b-8192">Llama 3 70B (Groq)</option>
-                  <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
+                  <option value="openai/gpt-oss-20b">GPT-OSS 20B (Groq)</option>
+                  <option value="openai/gpt-oss-120b">GPT-OSS 120B (Groq)</option>
+                  <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq)</option>
+                  <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (Groq)</option>
                 </select>
               </Field>
             )}
@@ -176,11 +178,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-2.5 py-1 text-xs font-semibold ${
-        active
-          ? "bg-blue-600 text-white"
-          : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-      }`}
+      className={`rounded px-2.5 py-1 text-xs font-semibold ${active
+        ? "bg-blue-600 text-white"
+        : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+        }`}
     >
       {label}
     </button>

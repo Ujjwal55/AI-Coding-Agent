@@ -23,6 +23,9 @@ class GraphState(TypedDict):
     plan_approved: bool
     plan_revision: int          # how many times the plan has been (re)generated
     max_plan_revisions: int     # bound on the plan feedback loop
+    # When True, planner → executor without pausing at plan_review
+    # (used after validation failure retries — human already approved a plan once).
+    skip_plan_review: bool
     
     # Execution State
     executor_output: Optional[str]
