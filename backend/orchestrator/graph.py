@@ -1,3 +1,4 @@
+import asyncio
 from langgraph.graph import StateGraph, END
 from orchestrator.state import GraphState
 from orchestrator.nodes import planner_node, executor_node, validator_node, human_approval_node
@@ -79,7 +80,10 @@ def build_dynamic_graph(graph_json: dict):
         if node_type == "objective":
             async def dummy_objective(state: GraphState, nid=node_id, ndata=node.get("data", {})):
                 label = ndata.get("label", "Objective")
+                logger.info(f"⚡ [START] Objective Node processing... ({nid})", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "in_progress"})
+                await asyncio.sleep(2)
+                logger.info(f"✅ [FINISH] Objective Node completed", extra={"node_id": nid, "label": label})
                 broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "completed"})
                 return {}
             workflow.add_node(node_id, dummy_objective)
