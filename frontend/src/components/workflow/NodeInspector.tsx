@@ -49,14 +49,20 @@ export default function NodeInspector({
     : "";
 
   useEffect(() => {
-    if (!selectedNodeId || !selectedNodeType) {
-      setMetadata(null);
-      return;
-    }
-
-    setMetadata(null);
     let mounted = true;
     let isFirstLoad = true;
+
+    if (!selectedNodeId || !selectedNodeType) {
+      queueMicrotask(() => {
+        if (mounted) {
+          setMetadata(null);
+          setLoadingMeta(false);
+        }
+      });
+      return () => {
+        mounted = false;
+      };
+    }
 
     const load = async () => {
       if (!fetchMetaRef.current) return;
@@ -68,6 +74,7 @@ export default function NodeInspector({
         setMetadata(nodeMeta ?? null);
       } catch (e) {
         console.error("Failed to fetch metadata", e);
+        if (mounted) setMetadata(null);
       } finally {
         if (mounted && isFirstLoad) {
           setLoadingMeta(false);
@@ -76,6 +83,10 @@ export default function NodeInspector({
       }
     };
 
+    // Clear stale telemetry asynchronously, then poll for this node.
+    queueMicrotask(() => {
+      if (mounted) setMetadata(null);
+    });
     load();
     const interval = setInterval(load, 2000);
     return () => {

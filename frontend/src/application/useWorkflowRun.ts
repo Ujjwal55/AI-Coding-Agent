@@ -294,7 +294,7 @@ export function useWorkflowRun({
     [resume],
   );
 
-  const resumeLocal = useCallback(() => resume({ action: "resume" }), [resume]);
+  const resumeLocal = useCallback(() => resume({}), [resume]);
 
   const cancelLocal = useCallback(() => {
     eventsPort.append({

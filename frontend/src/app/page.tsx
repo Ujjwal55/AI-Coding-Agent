@@ -651,7 +651,7 @@ export default function ControlPlanePage() {
         </div>
 
         <div className="flex-1 min-w-[300px] flex h-full overflow-hidden">
-          <RunTimeline steps={timelineSteps} />
+          <RunTimeline steps={timelineSteps} runStatus={runStatus} />
         </div>
 
         {/* Right Resize Drag Handle (Review) */}
