@@ -3,8 +3,11 @@ import glob
 from typing import Dict, Any, List
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from agents.llm import get_llm, normalize_llm_content
+from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from orchestrator.state import GraphState
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 async def code_understanding_node(state: GraphState) -> Dict[str, Any]:
     workspace_id = state.get("workspace_id")
@@ -106,7 +109,18 @@ Keep your analysis concise but thorough. This summary will be used by another AI
             HumanMessage(content=human_prompt)
         ]
         response = await llm.ainvoke(messages)
-        return {'code_summary': normalize_llm_content(response.content)}
+
+        metrics = extract_llm_metrics(response, model_name)
+        updated_usage = aggregate_llm_usage(state.get("llm_usage"), metrics)
+        logger.info(
+            f"📊 LLM Call Stats [CodeUnderstanding] | Model: {model_name} | Tokens: {metrics['total_tokens']} "
+            f"(In: {metrics['prompt_tokens']}, Out: {metrics['completion_tokens']}) | Cost: ${metrics['estimated_cost_usd']:.6f}"
+        )
+
+        return {
+            'code_summary': normalize_llm_content(response.content),
+            'llm_usage': updated_usage,
+        }
     except Exception as e:
         basic_summary = f"Codebase structure:\n{tree_string}\n\nImportant files found:\n{[os.path.relpath(p, workspace_path) for p in prioritized_files[:15]]}"
         return {'code_summary': f"LLM analysis failed. Basic structure:\n{basic_summary}"}

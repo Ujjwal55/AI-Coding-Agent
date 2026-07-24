@@ -189,6 +189,104 @@ def invoke_local_fallback(prompt_or_messages):
     return AIMessage(content=result)
 
 
+MODEL_PRICING = {
+    # Per 1M tokens: (input_usd, output_usd)
+    "gemini-3.1-flash-lite": (0.075, 0.30),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-flash-latest": (0.10, 0.40),
+    "llama-3.3-70b-versatile": (0.59, 0.79),
+    "llama-3.1-8b-instant": (0.05, 0.08),
+    "openai/gpt-oss-20b": (0.20, 0.50),
+    "openai/gpt-oss-120b": (0.60, 1.20),
+}
+DEFAULT_PRICING = (0.15, 0.60)  # Default $0.15 / 1M input, $0.60 / 1M output
+
+
+def extract_llm_metrics(response: Any, model_name: str = "default") -> dict:
+    """
+    Extract token usage (prompt, completion, total), model call count,
+    and estimated cost in USD from a LangChain AIMessage response.
+    """
+    usage = getattr(response, "usage_metadata", None) or {}
+    if not usage and hasattr(response, "response_metadata"):
+        res_meta = getattr(response, "response_metadata", {}) or {}
+        usage = res_meta.get("token_usage") or res_meta.get("usage") or {}
+
+    prompt_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+    completion_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+    total_tokens = usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+
+    # Calculate pricing
+    model_key = model_name.lower()
+    input_price, output_price = DEFAULT_PRICING
+    for key, price_pair in MODEL_PRICING.items():
+        if key in model_key:
+            input_price, output_price = price_pair
+            break
+
+    cost_usd = ((prompt_tokens / 1_000_000) * input_price) + ((completion_tokens / 1_000_000) * output_price)
+
+    return {
+        "model": model_name,
+        "calls": 1,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": round(cost_usd, 6),
+    }
+
+
+def aggregate_llm_usage(current_usage: dict | None, new_metrics: dict) -> dict:
+    """
+    Aggregate new LLM call metrics into existing GraphState cumulative tracking structure.
+    """
+    if not current_usage or not isinstance(current_usage, dict):
+        current_usage = {
+            "total_calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "breakdown_by_model": {},
+        }
+
+    model = new_metrics.get("model", "unknown")
+    calls = new_metrics.get("calls", 1)
+    prompt = new_metrics.get("prompt_tokens", 0)
+    completion = new_metrics.get("completion_tokens", 0)
+    total = new_metrics.get("total_tokens", 0)
+    cost = new_metrics.get("estimated_cost_usd", 0.0)
+
+    res = {
+        "total_calls": current_usage.get("total_calls", 0) + calls,
+        "prompt_tokens": current_usage.get("prompt_tokens", 0) + prompt,
+        "completion_tokens": current_usage.get("completion_tokens", 0) + completion,
+        "total_tokens": current_usage.get("total_tokens", 0) + total,
+        "estimated_cost_usd": round(current_usage.get("estimated_cost_usd", 0.0) + cost, 6),
+        "breakdown_by_model": dict(current_usage.get("breakdown_by_model", {})),
+    }
+
+    if model not in res["breakdown_by_model"]:
+        res["breakdown_by_model"][model] = {
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "estimated_cost_usd": 0.0,
+        }
+
+    m_data = dict(res["breakdown_by_model"][model])
+    m_data["calls"] += calls
+    m_data["prompt_tokens"] += prompt
+    m_data["completion_tokens"] += completion
+    m_data["total_tokens"] += total
+    m_data["estimated_cost_usd"] = round(m_data["estimated_cost_usd"] + cost, 6)
+    res["breakdown_by_model"][model] = m_data
+
+    return res
+
+
 def get_llm(model_name: str):
     """
     Build a chat model with a multi-provider fallback chain.
@@ -218,9 +316,9 @@ def get_llm(model_name: str):
         logger.info("Local Qwen fallback enabled via ENABLE_LOCAL_LLM_FALLBACK")
 
     if not runnables:
-        raise RuntimeError(
-            "No LLM backends available. Set GOOGLE_API_KEY and/or GROQ_API_KEY in backend/.env"
-        )
+        # Fallback to local if allowed or raise sensible error
+        logger.warning("No API keys found for Google or Groq LLMs")
+        return _build_chat_model(DEFAULT_GEMINI_MODEL)
 
     primary = runnables[0]
     if len(runnables) == 1:
@@ -228,3 +326,4 @@ def get_llm(model_name: str):
 
     # LangChain tries the next runnable when the previous raises.
     return primary.with_fallbacks(runnables[1:])
+

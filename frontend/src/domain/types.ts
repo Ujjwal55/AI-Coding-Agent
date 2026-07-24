@@ -105,3 +105,21 @@ export interface NodeExecutionView {
   lastMessage: string | null;
   stdout: string | null;
 }
+
+export interface ModelUsageDetail {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface LlmUsage {
+  total_calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  breakdown_by_model?: Record<string, ModelUsageDetail>;
+}
+

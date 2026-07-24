@@ -155,7 +155,11 @@ export default function ControlPlanePage() {
     currentPlan,
     planRevision,
     codeChangesSummary,
+<<<<<<< HEAD
     successCriteria,
+=======
+    llmUsage,
+>>>>>>> aniket
     lastError,
     isBusy,
     isGraphLocked,
@@ -181,8 +185,8 @@ export default function ControlPlanePage() {
         if (data.type === "node_status") {
           const eventType =
             data.status === "in_progress" ? "node_started" :
-            data.status === "completed" ? "node_completed" :
-            data.status === "failed" ? "error" : "node_completed";
+              data.status === "completed" ? "node_completed" :
+                data.status === "failed" ? "error" : "node_completed";
 
           eventsPort.append({
             runId: null,
@@ -534,7 +538,11 @@ export default function ControlPlanePage() {
         mission={mission}
         runStatus={runStatus}
         isBusy={isBusy}
+<<<<<<< HEAD
         importError={importError}
+=======
+        llmUsage={llmUsage}
+>>>>>>> aniket
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value }))
         }
@@ -594,8 +602,13 @@ export default function ControlPlanePage() {
           <RunConsole
             lines={consoleLines}
             runStatus={runStatus}
+<<<<<<< HEAD
             expanded={consoleExpanded}
             onToggleExpand={() => setConsoleExpanded((v) => !v)}
+=======
+            llmUsage={llmUsage}
+            onCancel={handleCancel}
+>>>>>>> aniket
           />
         </div>
 
