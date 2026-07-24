@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import type { MissionState, RunStatus } from "@/domain/types";
-import { FolderGit2, FolderPlus, Loader2, Play, Wrench, Upload, Download } from "lucide-react";
+import { FolderGit2, FolderPlus, Loader2, Play, Wrench, Upload, Download, Pause, RotateCcw } from "lucide-react";
 
 interface MissionBarProps {
   mission: MissionState;
@@ -42,6 +42,7 @@ export default function MissionBar({
   onRestart,
 }: MissionBarProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
 
@@ -101,6 +102,18 @@ export default function MissionBar({
           Empty workspace
         </button>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.[0]) {
+              onImportFile(e.target.files[0]);
+            }
+            e.target.value = "";
+          }}
+        />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -137,6 +150,26 @@ export default function MissionBar({
         >
           <Play className="h-4 w-4" />
           {runStatus === "paused" ? "Resume" : "Run"}
+        </button>
+
+        <button
+          type="button"
+          onClick={onPause}
+          disabled={runStatus !== "running"}
+          className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Pause className="h-4 w-4" />
+          Pause
+        </button>
+
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={isBusy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Restart
         </button>
       </div>
 

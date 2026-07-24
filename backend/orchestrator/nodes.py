@@ -483,7 +483,9 @@ async def validator_node(state: GraphState) -> Dict[str, Any]:
         }
 
     # Check attempt limits
-    if state.get("current_attempt", 0) >= state.get("max_attempts", 3):
+    config = state.get("_current_node_config", {})
+    max_retries = int(config.get("maxRetries", 3))
+    if state.get("current_attempt", 0) >= max_retries:
         end_node("validator")
         return {
             "validation_status": "PASS",
