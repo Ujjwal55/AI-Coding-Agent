@@ -45,7 +45,9 @@ Backend env: `backend/.env` with `GOOGLE_API_KEY` and/or `GROQ_API_KEY` (compose
 ## Default graph (canvas) — simplified 8-node loop
 
 ```
-objective → criteria → planner → plan_review
+objective (+ intent guardrail)
+   ├─ conversation / gibberish → END (ResultPanel explains)
+   └─ coding_task → criteria → planner → plan_review
                                       ├─ (feedback) → planner   [bounded]
                                       └─ (approve)  → executor → validator
                                                                   ├─ FAIL → planner / end   [maxRetries]
@@ -53,7 +55,6 @@ objective → criteria → planner → plan_review
                                                                                       ├─ approve → Task Successful
                                                                                       └─ changes → planner
 ```
-
 **Folded / internalized (not on the default canvas):**
 
 | Former node | Where it lives now |

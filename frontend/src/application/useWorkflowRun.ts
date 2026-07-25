@@ -18,6 +18,13 @@ import type {
 interface UseWorkflowRunOptions {
   workflowApi: WorkflowApiPort;
   eventsPort: RunEventsPort;
+  /** Optional BYOK fields merged into every run / resume call. */
+  getByokFields?: () => {
+    byokProvider?: "gemini" | "groq" | "openai" | "openai_compatible" | "anthropic";
+    byokApiKey?: string;
+    byokModel?: string;
+    byokBaseUrl?: string;
+  };
 }
 
 /** Node types considered "done" once the run pauses at a given gate. */
@@ -58,6 +65,7 @@ function firstNodeOfType(nodes: Node[], type: string): Node | undefined {
 export function useWorkflowRun({
   workflowApi,
   eventsPort,
+  getByokFields,
 }: UseWorkflowRunOptions) {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [pausedRunId, setPausedRunId] = useState<string | null>(null);
@@ -69,6 +77,9 @@ export function useWorkflowRun({
   );
   const [successCriteria, setSuccessCriteria] = useState<string[]>([]);
   const [llmUsage, setLlmUsage] = useState<LlmUsage | null>(null);
+  const [guardrailMessage, setGuardrailMessage] = useState<string | null>(null);
+  const [intentKind, setIntentKind] = useState<string | null>(null);
+  const [isCodingTask, setIsCodingTask] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -140,12 +151,27 @@ export function useWorkflowRun({
         typeof state.llm_usage === "object" && state.llm_usage !== null
           ? (state.llm_usage as LlmUsage)
           : null;
+      const guardrail =
+        typeof state.guardrail_message === "string"
+          ? state.guardrail_message
+          : null;
+      const intent =
+        typeof state.intent_kind === "string" ? state.intent_kind : null;
+      const coding =
+        typeof state.is_coding_task === "boolean"
+          ? state.is_coding_task
+          : guardrail
+            ? false
+            : true;
 
       setCurrentPlan(plan);
       setCodeChangesSummary(summary);
       setSuccessCriteria(criteria);
       setPlanRevision(revision);
       setLlmUsage(usage);
+      setGuardrailMessage(guardrail);
+      setIntentKind(intent);
+      setIsCodingTask(coding);
 
       if (runData.status === "paused") {
         const reason = (state.pause_reason as PauseReason) ?? "plan_review";
@@ -173,14 +199,23 @@ export function useWorkflowRun({
       } else {
         setRunStatus("completed");
         emitAllCompleted(runData.id);
-        const feedback =
-          typeof state.feedback === "string" ? ` (${state.feedback})` : "";
-        eventsPort.append({
-          runId: runData.id,
-          eventType: "run_completed",
-          nodeId: null,
-          message: `Task successful${feedback}.`,
-        });
+        if (!coding && guardrail) {
+          eventsPort.append({
+            runId: runData.id,
+            eventType: "run_completed",
+            nodeId: null,
+            message: `Stopped early (${intent ?? "not a coding task"}): ${guardrail.slice(0, 120)}`,
+          });
+        } else {
+          const feedback =
+            typeof state.feedback === "string" ? ` (${state.feedback})` : "";
+          eventsPort.append({
+            runId: runData.id,
+            eventType: "run_completed",
+            nodeId: null,
+            message: `Task successful${feedback}.`,
+          });
+        }
       }
     },
     [emitProgress, emitAllCompleted, eventsPort],
@@ -194,6 +229,9 @@ export function useWorkflowRun({
       setCurrentPlan(null);
       setCodeChangesSummary(null);
       setLlmUsage(null);
+      setGuardrailMessage(null);
+      setIntentKind(null);
+      setIsCodingTask(true);
       nodesRef.current = nodes;
       eventsPort.reset();
 
@@ -211,7 +249,11 @@ export function useWorkflowRun({
           description: options?.objective ?? "Created from canvas",
         });
         const version = await workflowApi.saveVersion(wf.id, { nodes, edges });
-        const runData = await workflowApi.run(version.id, options);
+        const byok = getByokFields?.() ?? {};
+        const runData = await workflowApi.run(version.id, {
+          ...options,
+          ...byok,
+        });
         applyRunResult(runData);
         return runData;
       } catch (error) {
@@ -232,7 +274,7 @@ export function useWorkflowRun({
         setIsBusy(false);
       }
     },
-    [workflowApi, eventsPort, applyRunResult],
+    [workflowApi, eventsPort, applyRunResult, getByokFields],
   );
 
   const resume = useCallback(
@@ -242,7 +284,11 @@ export function useWorkflowRun({
       setLastError(null);
       setRunStatus("running");
       try {
-        const runData = await workflowApi.resume(pausedRunId, options);
+        const byok = getByokFields?.() ?? {};
+        const runData = await workflowApi.resume(pausedRunId, {
+          ...options,
+          ...byok,
+        });
         applyRunResult(runData);
         return runData;
       } catch (error) {
@@ -261,7 +307,7 @@ export function useWorkflowRun({
         setIsBusy(false);
       }
     },
-    [pausedRunId, workflowApi, eventsPort, applyRunResult],
+    [pausedRunId, workflowApi, eventsPort, applyRunResult, getByokFields],
   );
 
   const approvePlan = useCallback(
@@ -342,6 +388,9 @@ export function useWorkflowRun({
     codeChangesSummary,
     successCriteria,
     llmUsage,
+    guardrailMessage,
+    intentKind,
+    isCodingTask,
     lastError,
     isBusy,
     isGraphLocked,

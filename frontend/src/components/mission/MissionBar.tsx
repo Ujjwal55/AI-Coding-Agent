@@ -2,10 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { LlmUsage, MissionState, RunStatus } from "@/domain/types";
+import type { ByokProvider, ByokSettings } from "@/utils/byok";
+import {
+  MODEL_SUGGESTIONS,
+  defaultBaseUrl,
+  defaultModelForProvider,
+} from "@/utils/byok";
 import {
   Coins,
   FolderGit2,
   FolderPlus,
+  KeyRound,
   Loader2,
   Play,
   Wrench,
@@ -22,6 +29,8 @@ interface MissionBarProps {
   isBusy: boolean;
   importError?: string | null;
   llmUsage?: LlmUsage | null;
+  byok: ByokSettings;
+  onByokChange: (next: ByokSettings) => void;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -45,6 +54,8 @@ export default function MissionBar({
   isBusy,
   importError,
   llmUsage,
+  byok,
+  onByokChange,
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
@@ -59,9 +70,35 @@ export default function MissionBar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canRun = mission.prepared && !isBusy;
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
+  const byokActive = Boolean(byok.apiKey.trim());
+  const [byokOpen, setByokOpen] = useState(false);
 
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const usagePopoverRef = useRef<HTMLDivElement>(null);
+
+  const modelSuggestions = MODEL_SUGGESTIONS[byok.provider] ?? [];
+  const needsBaseUrl =
+    byok.provider === "openai_compatible" || byok.provider === "openai";
+
+  const setProvider = (provider: ByokProvider) => {
+    onByokChange({
+      ...byok,
+      provider,
+      model: defaultModelForProvider(provider),
+      baseUrl: defaultBaseUrl(provider),
+    });
+  };
+
+  const keyPlaceholder =
+    byok.provider === "gemini"
+      ? "AIza… (Google AI Studio)"
+      : byok.provider === "groq"
+        ? "gsk_… (Groq console)"
+        : byok.provider === "openai"
+          ? "sk-… (OpenAI)"
+          : byok.provider === "anthropic"
+            ? "sk-ant-… (Anthropic Console)"
+            : "API key for your OpenAI-compatible endpoint";
 
   useEffect(() => {
     if (!isUsageOpen) return;
@@ -211,6 +248,107 @@ export default function MissionBar({
         </button>
       </div>
 
+      <div className="mt-2 rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setByokOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <KeyRound className="h-3.5 w-3.5" />
+            Bring your own key (optional)
+          </span>
+          <span className="text-[11px] text-slate-500">
+            {byokActive
+              ? `${byok.provider} · ${byok.model}`
+              : "using platform defaults"}{" "}
+            · {byokOpen ? "hide" : "show"}
+          </span>
+        </button>
+        {byokOpen && (
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <label className="block text-[11px] font-medium text-slate-600">
+              Provider
+              <select
+                value={byok.provider}
+                onChange={(e) => setProvider(e.target.value as ByokProvider)}
+                disabled={isBusy}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+              >
+                <option value="gemini">Google Gemini</option>
+                <option value="groq">Groq</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai_compatible">OpenAI-compatible</option>
+              </select>
+            </label>
+            <label className="block text-[11px] font-medium text-slate-600 sm:col-span-2">
+              API key
+              <input
+                type="password"
+                autoComplete="off"
+                value={byok.apiKey}
+                onChange={(e) =>
+                  onByokChange({ ...byok, apiKey: e.target.value })
+                }
+                disabled={isBusy}
+                placeholder={keyPlaceholder}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-sm text-slate-900"
+              />
+            </label>
+            {byokActive && needsBaseUrl && (
+              <label className="block text-[11px] font-medium text-slate-600 sm:col-span-3">
+                Base URL
+                {byok.provider === "openai_compatible" ? " (required)" : " (optional)"}
+                <input
+                  type="url"
+                  autoComplete="off"
+                  value={byok.baseUrl}
+                  onChange={(e) =>
+                    onByokChange({ ...byok, baseUrl: e.target.value })
+                  }
+                  disabled={isBusy}
+                  placeholder={
+                    byok.provider === "openai"
+                      ? "https://api.openai.com/v1"
+                      : "https://api.deepseek.com/v1"
+                  }
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-sm text-slate-900"
+                />
+              </label>
+            )}
+            {byokActive && (
+              <label className="block text-[11px] font-medium text-slate-600 sm:col-span-3">
+                Model id (any model your key can call)
+                <input
+                  type="text"
+                  list="byok-model-suggestions"
+                  autoComplete="off"
+                  value={byok.model}
+                  onChange={(e) =>
+                    onByokChange({ ...byok, model: e.target.value })
+                  }
+                  disabled={isBusy}
+                  placeholder={defaultModelForProvider(byok.provider)}
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-sm text-slate-900"
+                />
+                <datalist id="byok-model-suggestions">
+                  {modelSuggestions.map((m) => (
+                    <option key={m} value={m} />
+                  ))}
+                </datalist>
+              </label>
+            )}
+            <p className="sm:col-span-3 text-[11px] text-slate-500">
+              Platform default is Gemini/Groq. With a key, enter any model id
+              that provider accepts (suggestions are optional). Your key stays
+              in this browser session and is sent with Run / Resume — not stored
+              in the database.
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Chip
           active={Boolean(mission.objective.trim())}
@@ -231,6 +369,14 @@ export default function MissionBar({
           label={mission.prepared ? "prepared" : "not prepared"}
         />
         <Chip active={runStatus !== "idle"} label={`run: ${runStatus}`} />
+        <Chip
+          active={byokActive}
+          label={
+            byokActive
+              ? `byok: ${byok.provider}`
+              : "byok: off (platform keys)"
+          }
+        />
 
         {llmUsage && llmUsage.total_calls > 0 && (
           <>

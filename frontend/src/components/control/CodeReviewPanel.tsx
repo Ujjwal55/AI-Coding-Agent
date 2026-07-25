@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Download, GitPullRequestArrow, ThumbsUp } from "lucide-react";
+import { validateHumanFeedback } from "@/utils/feedbackGuardrail";
 
 interface CodeReviewPanelProps {
   isOpen: boolean;
@@ -21,6 +22,17 @@ export default function CodeReviewPanel({
   isBusy = false,
 }: CodeReviewPanelProps) {
   const [feedback, setFeedback] = useState("");
+  const [guardError, setGuardError] = useState<string | null>(null);
+
+  const handleRequestChanges = () => {
+    const check = validateHumanFeedback(feedback, "code");
+    if (!check.ok) {
+      setGuardError(check.message ?? "Feedback rejected.");
+      return;
+    }
+    setGuardError(null);
+    onRequestChanges(feedback.trim());
+  };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-white">
@@ -52,17 +64,26 @@ export default function CodeReviewPanel({
 
           <textarea
             value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
+            onChange={(e) => {
+              setFeedback(e.target.value);
+              if (guardError) setGuardError(null);
+            }}
             rows={3}
-            placeholder="Optional: request changes (loops back to the planner)…"
+            placeholder="Request code changes (e.g. 'rename to add.py and add tests')…"
             className="w-full rounded border border-slate-300 p-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
+
+          {guardError && (
+            <pre className="whitespace-pre-wrap rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950">
+              {guardError}
+            </pre>
+          )}
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={isBusy || !feedback.trim()}
-              onClick={() => onRequestChanges(feedback.trim())}
+              onClick={handleRequestChanges}
               className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               <GitPullRequestArrow className="h-4 w-4" />

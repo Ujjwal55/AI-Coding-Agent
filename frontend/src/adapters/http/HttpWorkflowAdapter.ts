@@ -10,6 +10,7 @@ import type {
   WorkflowVersionRecord,
 } from "@/domain/types";
 import { getApiBaseUrl } from "@/utils/apiBaseUrl";
+import { parseApiErrorDetail } from "@/utils/feedbackGuardrail";
 
 function getBaseUrl(): string {
   return getApiBaseUrl();
@@ -18,7 +19,8 @@ function getBaseUrl(): string {
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+    const detail = parseApiErrorDetail(text) || res.statusText;
+    throw new Error(detail);
   }
   return res.json() as Promise<T>;
 }
@@ -101,6 +103,10 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
         workspace_id: options?.workspaceId ?? null,
         success_criteria: options?.successCriteria ?? null,
         max_plan_revisions: options?.maxPlanRevisions ?? null,
+        byok_provider: options?.byokProvider ?? null,
+        byok_api_key: options?.byokApiKey ?? null,
+        byok_model: options?.byokModel ?? null,
+        byok_base_url: options?.byokBaseUrl ?? null,
       }),
     });
     return parseJson<WorkflowRunRecord>(res);
@@ -117,6 +123,10 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
         action: options?.action ?? null,
         feedback: options?.feedback ?? null,
         state_updates: options?.stateUpdates ?? null,
+        byok_provider: options?.byokProvider ?? null,
+        byok_api_key: options?.byokApiKey ?? null,
+        byok_model: options?.byokModel ?? null,
+        byok_base_url: options?.byokBaseUrl ?? null,
       }),
     });
     return parseJson<WorkflowRunRecord>(res);

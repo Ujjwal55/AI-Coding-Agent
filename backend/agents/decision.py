@@ -42,6 +42,13 @@ def after_planner_route(state: GraphState) -> str:
     return "plan_review"
 
 
+def after_objective_route(state: GraphState) -> str:
+    """After Objective intent guard: continue coding loop or exit early."""
+    if state.get("is_coding_task", True):
+        return "continue"
+    return "end"
+
+
 def should_replan(state: GraphState) -> str:
     """Plan Review routing. Deterministically decide replan vs. execute.
 

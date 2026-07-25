@@ -9,6 +9,7 @@ from agents.decision import (
     should_replan,
     should_finish_after_review,
     after_planner_route,
+    after_objective_route,
     decision_node,
     plan_review_node,
 )
@@ -111,20 +112,54 @@ def build_dynamic_graph(graph_json: dict):
         node_type = node.get("data", {}).get("nodeType", "planner")
         
         if node_type == "objective":
-            async def dummy_objective(state: GraphState, nid=node_id, ndata=node.get("data", {})):
+            async def objective_with_intent(state: GraphState, nid=node_id, ndata=node.get("data", {})):
                 from utils.metadata_tracker import start_node, end_node
+                from agents.intent_guard import intent_guard_from_state
+
                 label = ndata.get("label", "Objective")
-                logger.info(f"⚡ [START] Objective Node processing... ({nid})", extra={"node_id": nid, "label": label})
-                broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "in_progress"})
+                logger.info(
+                    f"⚡ [START] Objective Node + intent guard... ({nid})",
+                    extra={"node_id": nid, "label": label},
+                )
+                broadcast_event(
+                    {
+                        "type": "node_status",
+                        "node_id": nid,
+                        "node_type": "objective",
+                        "label": label,
+                        "status": "in_progress",
+                    }
+                )
                 start_node("objective")
                 try:
-                    await asyncio.sleep(2)
+                    # Inject node config so intent LLM (if needed) can read model.
+                    state = {**state, "_current_node_config": ndata}
+                    intent = await intent_guard_from_state(state)
                 finally:
                     end_node("objective")
-                logger.info(f"✅ [FINISH] Objective Node completed", extra={"node_id": nid, "label": label})
-                broadcast_event({"type": "node_status", "node_id": nid, "node_type": "objective", "label": label, "status": "completed"})
-                return {}
-            workflow.add_node(node_id, dummy_objective)
+
+                status = "completed" if intent.get("is_coding_task") else "failed"
+                logger.info(
+                    f"✅ [FINISH] Objective Node ({status})",
+                    extra={
+                        "node_id": nid,
+                        "intent_kind": intent.get("intent_kind"),
+                        "is_coding_task": intent.get("is_coding_task"),
+                    },
+                )
+                broadcast_event(
+                    {
+                        "type": "node_status",
+                        "node_id": nid,
+                        "node_type": "objective",
+                        "label": label,
+                        "status": status,
+                        "output": intent,
+                    }
+                )
+                return intent
+
+            workflow.add_node(node_id, objective_with_intent)
             valid_node_ids.add(node_id)
         elif node_type == "end":
             pass # END is a special LangGraph constant
@@ -142,6 +177,7 @@ def build_dynamic_graph(graph_json: dict):
     human_gate_id = find_node_by_type("human_gate")
     plan_review_id = find_node_by_type("plan_review")
     decision_id = find_node_by_type("decision")
+    criteria_id = find_node_by_type("criteria")
 
     # Node types whose outgoing edges are replaced by deterministic conditional
     # routers. We only need one edge per such node to trigger wiring, so we
@@ -175,7 +211,20 @@ def build_dynamic_graph(graph_json: dict):
 
         source_type = source_node.get("data", {}).get("nodeType")
 
-        if source_type == "decision":
+        if source_type == "objective":
+            if source in processed_conditional_nodes:
+                continue
+            processed_conditional_nodes.add(source)
+            # Intent guardrail: coding → next agent; chat/gibberish → end.
+            workflow.add_conditional_edges(
+                source,
+                after_objective_route,
+                {
+                    "continue": criteria_id or target,
+                    "end": END,
+                },
+            )
+        elif source_type == "decision":
             if source in processed_conditional_nodes:
                 continue
             processed_conditional_nodes.add(source)

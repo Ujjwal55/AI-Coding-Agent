@@ -91,11 +91,20 @@ class RunRequest(BaseModel):
     success_criteria: Optional[List[str]] = None
     max_plan_revisions: Optional[int] = None
     repo_path: Optional[str] = None
+    # BYOK — optional; when set, used instead of / alongside platform keys
+    byok_provider: Optional[str] = None  # gemini | groq | openai | openai_compatible | anthropic
+    byok_api_key: Optional[str] = None
+    byok_model: Optional[str] = None
+    byok_base_url: Optional[str] = None
 
 class ResumeRequest(BaseModel):
     state_updates: Optional[Dict[str, Any]] = None
     action: Optional[str] = None  # "approve_plan", "send_plan_feedback", "approve_code", "request_code_changes"
     feedback: Optional[str] = None
+    byok_provider: Optional[str] = None
+    byok_api_key: Optional[str] = None
+    byok_model: Optional[str] = None
+    byok_base_url: Optional[str] = None
 
 @router.post("/{version_id}/run", response_model=WorkflowRunRead)
 async def run_workflow(
@@ -120,6 +129,13 @@ async def run_workflow(
         "current_attempt": 0,
         "success_criteria": request.success_criteria or [],
         "messages": [],
+        "is_coding_task": True,
+        "intent_kind": None,
+        "guardrail_message": None,
+        "byok_provider": (request.byok_provider or "").strip() or None,
+        "byok_api_key": (request.byok_api_key or "").strip() or None,
+        "byok_model": (request.byok_model or "").strip() or None,
+        "byok_base_url": (request.byok_base_url or "").strip() or None,
     }
 
     # Delegate to runtime manager
@@ -146,6 +162,20 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
     if run.status != "paused":
         logger.error("Attempted to resume unpaused run", extra={"run_id": run_id, "current_status": run.status})
         raise HTTPException(status_code=400, detail="Run is not paused")
+
+    # Guardrail: reject chat/gibberish feedback before flipping status to running.
+    if request.action in ("send_plan_feedback", "request_code_changes"):
+        from agents.intent_guard import classify_human_feedback
+
+        context = "plan" if request.action == "send_plan_feedback" else "code"
+        check = classify_human_feedback(request.feedback or "", context=context)
+        if not check.get("is_actionable"):
+            detail = check.get("guardrail_message") or "Feedback is not actionable."
+            logger.info(
+                "Rejected human feedback via guardrail",
+                extra={"run_id": run_id, "action": request.action, "intent_kind": check.get("intent_kind")},
+            )
+            raise HTTPException(status_code=400, detail=detail)
         
     run.status = "running"
     await db.commit()
@@ -178,6 +208,17 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
         state_updates["human_approved"] = False
         state_updates["skip_plan_review"] = False
         state_updates["pause_reason"] = None
+
+    # Re-inject BYOK on resume (state_json stores a redacted key only).
+    byok_key = (request.byok_api_key or "").strip()
+    if byok_key:
+        state_updates["byok_api_key"] = byok_key
+        if request.byok_provider:
+            state_updates["byok_provider"] = request.byok_provider.strip()
+        if request.byok_model:
+            state_updates["byok_model"] = request.byok_model.strip()
+        if request.byok_base_url:
+            state_updates["byok_base_url"] = request.byok_base_url.strip()
     
     # Update the LangGraph checkpoint state
     if state_updates:
@@ -187,8 +228,22 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
         compiled_graph.checkpointer = memory_saver
         config = {"configurable": {"thread_id": run_id}}
         compiled_graph.update_state(config, state_updates)
+
+    resume_initial = {
+        "byok_provider": (request.byok_provider or "").strip() or None,
+        "byok_api_key": byok_key or None,
+        "byok_model": (request.byok_model or "").strip() or None,
+        "byok_base_url": (request.byok_base_url or "").strip() or None,
+    }
     
-    task = asyncio.create_task(execute_workflow(run.version_id, db, str(run.id)))
+    task = asyncio.create_task(
+        execute_workflow(
+            run.version_id,
+            db,
+            str(run.id),
+            initial_state=resume_initial,
+        )
+    )
     ACTIVE_RUN_TASKS[str(run.id)] = task
     try:
         run = await task

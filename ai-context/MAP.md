@@ -12,9 +12,10 @@
 | Pause/resume + MemorySaver + pause_reason | `backend/orchestrator/runtime.py` |
 | Shared LangGraph state fields (`llm_usage`, plan flags) | `backend/orchestrator/state.py` |
 | Replan / validation / code-review routers | `backend/agents/decision.py` |
-| Model factory, remaps, content normalize, cost metrics | `backend/agents/llm.py` |
+| Model factory, remaps, BYOK (any model + OpenAI-compatible), cost metrics | `backend/agents/llm.py` |
 | Criteria generation | `backend/agents/success_criteria.py` |
 | Repo analysis summary | `backend/agents/code_understanding.py` |
+| Intent guardrail (coding vs chat) | `backend/agents/intent_guard.py` |
 | DB models | `backend/models/workflow.py` |
 | Alembic | `backend/alembic/` |
 | Uploaded repos on disk | `backend/workspaces/` (gitignored) |
@@ -26,7 +27,7 @@
 | Want… | Look at… |
 |---|---|
 | Composition root / default 8 nodes & edges | `frontend/src/app/page.tsx` |
-| Folder zip + upload + export/import + run wiring | same + `MissionBar.tsx` |
+| Folder zip + upload + export/import + BYOK + run wiring | same + `MissionBar.tsx` |
 | Pause routing / approve plan / code / criteria | `frontend/src/application/useWorkflowRun.ts` |
 | HTTP client | `frontend/src/adapters/http/HttpWorkflowAdapter.ts` |
 | API port contract | `frontend/src/ports/WorkflowApiPort.ts` |
