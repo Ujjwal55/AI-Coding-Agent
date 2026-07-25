@@ -213,6 +213,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
     objective = state.get("objective", "")
     code_summary = state.get("code_summary", "")
     model_name = config.get("model", "gemini-2.5-flash")
+    extra_instructions = (config.get("instructions") or "").strip()
 
     if not workspace_id:
         return {
