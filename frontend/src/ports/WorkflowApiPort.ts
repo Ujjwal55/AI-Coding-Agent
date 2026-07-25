@@ -1,6 +1,5 @@
 import type {
   FileNode,
-  RunStartOptions,
   WorkflowRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
@@ -11,6 +10,10 @@ export interface RunOptions {
   workspaceId?: string | null;
   successCriteria?: string[];
   maxPlanRevisions?: number;
+  byokProvider?: "gemini" | "groq" | "openai" | "openai_compatible" | "anthropic" | null;
+  byokApiKey?: string | null;
+  byokModel?: string | null;
+  byokBaseUrl?: string | null;
 }
 
 /** Resume actions understood by the backend /resume endpoint. */
@@ -24,6 +27,10 @@ export interface ResumeOptions {
   action?: ResumeAction;
   feedback?: string;
   stateUpdates?: Record<string, unknown>;
+  byokProvider?: "gemini" | "groq" | "openai" | "openai_compatible" | "anthropic" | null;
+  byokApiKey?: string | null;
+  byokModel?: string | null;
+  byokBaseUrl?: string | null;
 }
 
 /** Port for orchestrator HTTP API. Swap adapter without changing UI. */
@@ -43,10 +50,6 @@ export interface WorkflowApiPort {
     zip: Blob,
     fileName?: string,
   ): Promise<{ workspace_id: string; file_tree: FileNode[] }>;
-  run(
-    versionId: string,
-    options?: RunStartOptions,
-  ): Promise<WorkflowRunRecord>;
 
   /** URL to download the (possibly modified) workspace as a zip. */
   downloadUrl(workspaceId: string): string;
@@ -61,7 +64,7 @@ export interface WorkflowApiPort {
 
   run(versionId: string, options?: RunOptions): Promise<WorkflowRunRecord>;
 
-  resume(runId: string, options: ResumeOptions): Promise<WorkflowRunRecord>;
+  resume(runId: string, options?: ResumeOptions): Promise<WorkflowRunRecord>;
 
   pauseActive(): Promise<void>;
 

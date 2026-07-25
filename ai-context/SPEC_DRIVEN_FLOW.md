@@ -8,26 +8,19 @@ This is the product loop the system implements (Track B + team “spec-driven”
 1. Upload repo folder (zip client-side) or Empty workspace → workspace_id
 2. Enter engineering objective / requirements
 3. Prepare (sync objective into Objective node) → Run
-4. Criteria agent generates success criteria (hybrid UI exists; graph currently auto-continues)
-5. Planner:
+4. ★ Intent guardrail (inside Objective):
+      - conversation / gibberish → END immediately + guardrail_message (ResultPanel)
+      - coding_task → continue
+5. Criteria agent generates success criteria (hybrid UI exists; graph currently auto-continues)
+6. Planner:
       - If no code_summary yet → runs Code Understanding inline
       - Produces markdown implementation plan (objective + criteria + code_summary)
-6. ★ PAUSE plan_review — PlanReviewPanel
+7. ★ PAUSE plan_review — PlanReviewPanel
       - Send Feedback → planner again (plan_revision++, bounded by max_plan_revisions)
       - Approve Plan  → executor
-7. Executor: LLM file write protocol into workspaces/<id>/
-      ===== WRITE_FILE: path =====
-      ...full file...
-      ===== END_FILE =====
-8. Validator: deterministic syntax checks; FAIL if executor failed / parsed no changes
-      - FAIL + retries left → planner with skip_plan_review (no second plan HITL)
-      - FAIL + exhausted   → end (safe stop)
-      - PASS               → human_gate
-9. ★ PAUSE code_review — CodeReviewPanel
-      - Request Changes → planner with feedback
-      - Approve & Finish → Task Successful (end)
-      - Download zip of modified workspace
-10. ResultPanel (on completed): browse files + download ZIP
+8. Executor: LLM file write protocol into workspaces/<id>/
+9. Validator → human_gate / retry / safe stop
+10. ★ PAUSE code_review — CodeReviewPanel → Task Successful / ResultPanel
 ```
 
 ## Pause discrimination (frontend)

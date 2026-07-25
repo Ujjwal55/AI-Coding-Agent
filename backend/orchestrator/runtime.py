@@ -34,13 +34,15 @@ async def execute_workflow(
     if not run:
         logger.error("Workflow run not found", extra={"run_id": run_id})
         raise ValueError("Run not found")
-        
+
+    from agents.llm import apply_byok_from_state, clear_byok_credentials
+
     try:
         compiled_graph = build_dynamic_graph(version.graph_json)
         compiled_graph.checkpointer = memory_saver
-        
+
         config = {"configurable": {"thread_id": run_id}}
-        
+
         state = {
             "objective": "Build the feature",
             "repo_path": "target_repo",
@@ -57,27 +59,35 @@ async def execute_workflow(
         if workspace_id:
             state["workspace_id"] = workspace_id
 
-        
+        apply_byok_from_state(state)
+
         # Determine if we are resuming or starting fresh
         snapshot = compiled_graph.get_state(config)
         if snapshot.next:
-            logger.info("Resuming execution from checkpoint", extra={"run_id": run_id, "next_nodes": snapshot.next})
+            # Prefer BYOK from this resume's initial_state; else checkpoint values.
+            if initial_state and initial_state.get("byok_api_key"):
+                apply_byok_from_state(initial_state)
+            elif snapshot.values:
+                apply_byok_from_state(dict(snapshot.values))
+            logger.info(
+                "Resuming execution from checkpoint",
+                extra={"run_id": run_id, "next_nodes": snapshot.next},
+            )
             final_state = await compiled_graph.ainvoke(None, config)
         else:
             from utils.metadata_tracker import clear_metadata
+
             clear_metadata()
             logger.info("Starting fresh graph execution", extra={"run_id": run_id})
             final_state = await compiled_graph.ainvoke(state, config)
-            
+
         snapshot = compiled_graph.get_state(config)
-        
+
         if snapshot.next:
             run.status = "paused"
-            # Include pause_reason in the state for the frontend
             state_values = dict(snapshot.values) if snapshot.values else {}
 
             # Always derive the pause reason from the node we are about to run.
-            # (Do not trust a possibly-stale pause_reason left in the state.)
             next_nodes = list(snapshot.next) if snapshot.next else []
             nodes_by_id = {n["id"]: n for n in version.graph_json.get("nodes", [])}
             pause_reason = None
@@ -98,7 +108,7 @@ async def execute_workflow(
         else:
             run.status = "completed"
             run.state_json = _make_serializable(final_state)
-            
+
     except asyncio.CancelledError:
         logger.info("Task cancelled mid-execution", extra={"run_id": run_id})
         run.status = "paused"
@@ -109,7 +119,7 @@ async def execute_workflow(
         await db.commit()
         await db.refresh(run)
         return run
-        
+
     except Exception as e:
         if type(e).__name__ == "NodeInterrupt" or "user_paused" in str(e):
             logger.info("Run interrupted by user_paused exception.", extra={"run_id": run_id})
@@ -122,9 +132,14 @@ async def execute_workflow(
             logger.error(f"Workflow execution failed: {e}", exc_info=True)
             run.status = "failed"
             run.state_json = {"error": str(e)}
-            logger.critical("Workflow execution failed with exception", extra={"run_id": run_id, "error": str(e)}, exc_info=True)
+            logger.critical(
+                "Workflow execution failed with exception",
+                extra={"run_id": run_id, "error": str(e)},
+                exc_info=True,
+            )
+    finally:
+        clear_byok_credentials()
 
-        
     await db.commit()
     await db.refresh(run)
     return run
@@ -136,13 +151,16 @@ def _make_serializable(state: dict) -> dict:
     for key, value in state.items():
         if key.startswith("_"):
             continue  # Skip internal keys like _current_node_config
+        # Never persist raw BYOK secrets in WorkflowRun.state_json.
+        if key == "byok_api_key" and isinstance(value, str) and value:
+            result[key] = f"***{value[-4:]}" if len(value) >= 4 else "****"
+            continue
         try:
-            # Test if it's JSON serializable
             import json
+
             json.dumps(value)
             result[key] = value
         except (TypeError, ValueError):
-            # Convert non-serializable objects to string representation
             if isinstance(value, list):
                 result[key] = [str(item) for item in value]
             else:

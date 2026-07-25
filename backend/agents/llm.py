@@ -13,7 +13,8 @@ quota, auth) trips the next fallback. Check logs for the real exception.
 from __future__ import annotations
 
 import os
-from typing import List, Tuple
+from contextvars import ContextVar
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import BaseMessage, AIMessage
@@ -25,6 +26,72 @@ logger = get_logger(__name__)
 
 _local_llm_instance = None
 
+# Per-request BYOK (set for the duration of a run / resume).
+# Shape: provider, api_key, model, base_url (optional for OpenAI-compatible).
+_byok_ctx: ContextVar[Optional[Dict[str, Any]]] = ContextVar("byok_ctx", default=None)
+
+
+def set_byok_credentials(
+    *,
+    provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+):
+    """Activate BYOK for the current asyncio task / request."""
+    key = (api_key or "").strip()
+    if not key:
+        _byok_ctx.set(None)
+        return
+    prov = (provider or "").strip().lower()
+    model_l = (model or "").lower()
+    if prov not in ("gemini", "groq", "openai", "openai_compatible", "anthropic"):
+        if "gemini" in model_l:
+            prov = "gemini"
+        elif "claude" in model_l or "anthropic" in model_l:
+            prov = "anthropic"
+        elif any(t in model_l for t in ("gpt-", "o1", "o3", "o4")):
+            prov = "openai"
+        else:
+            prov = "groq"
+    _byok_ctx.set(
+        {
+            "provider": prov,
+            "api_key": key,
+            "model": (model or "").strip() or None,
+            "base_url": (base_url or "").strip() or None,
+        }
+    )
+    logger.info(
+        "BYOK active for this run",
+        extra={
+            "provider": prov,
+            "model": (model or "").strip() or "(node default)",
+            "base_url": (base_url or "").strip() or None,
+            "key_suffix": key[-4:] if len(key) >= 4 else "****",
+        },
+    )
+
+
+def clear_byok_credentials():
+    _byok_ctx.set(None)
+
+
+def get_byok_credentials() -> Optional[Dict[str, Any]]:
+    return _byok_ctx.get()
+
+
+def apply_byok_from_state(state: Optional[dict]):
+    """Restore BYOK context from GraphState (e.g. on resume)."""
+    if not state:
+        clear_byok_credentials()
+        return
+    set_byok_credentials(
+        provider=state.get("byok_provider"),
+        api_key=state.get("byok_api_key"),
+        model=state.get("byok_model"),
+        base_url=state.get("byok_base_url"),
+    )
 # Default model that is known to work with current Google GenAI API keys.
 DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 # Groq: llama3-70b-8192 and mixtral-8x7b-32768 are decommissioned.
@@ -78,8 +145,13 @@ def normalize_llm_content(content) -> str:
 
 
 def _remap_model_id(requested: str) -> str:
-    name = (requested or "").strip().lower() or DEFAULT_GEMINI_MODEL
+    name = (requested or "").strip() or DEFAULT_GEMINI_MODEL
+    byok = get_byok_credentials()
+    # BYOK: never rewrite the user's chosen model id (they may use any catalog id).
+    if byok and byok.get("api_key"):
+        return name
 
+    lower = name.lower()
     legacy = {
         # Retired Gemini IDs
         "gemini-1.5-pro": DEFAULT_GEMINI_MODEL,
@@ -93,14 +165,14 @@ def _remap_model_id(requested: str) -> str:
         "mixtral-8x7b-32768": DEFAULT_GROQ_MODEL,
         "gemma2-9b-it": "llama-3.1-8b-instant",
     }
-    if name in legacy:
-        logger.info("Remapped retired model id", extra={"from": requested, "to": legacy[name]})
-        return legacy[name]
+    if lower in legacy:
+        logger.info("Remapped retired model id", extra={"from": requested, "to": legacy[lower]})
+        return legacy[lower]
 
-    if any(token in name for token in ("gpt-4", "o1", "claude", "anthropic", "openai")) and not name.startswith(
+    if any(token in lower for token in ("gpt-4", "o1", "claude", "anthropic", "openai")) and not lower.startswith(
         "openai/"
     ):
-        # UI OpenAI/Anthropic labels → Gemini if available else Groq
+        # Platform path only: unsupported UI labels → Gemini/Groq defaults
         mapped = DEFAULT_GEMINI_MODEL if os.getenv("GOOGLE_API_KEY") else DEFAULT_GROQ_MODEL
         logger.info("Remapped unsupported UI model", extra={"from": requested, "to": mapped})
         return mapped
@@ -108,22 +180,80 @@ def _remap_model_id(requested: str) -> str:
     return name
 
 
-def _build_chat_model(model_id: str):
+def _build_chat_model(model_id: str, *, api_key: Optional[str] = None, provider: Optional[str] = None):
     mid = model_id.lower()
-    if "gemini" in mid:
-        if not os.getenv("GOOGLE_API_KEY"):
-            raise RuntimeError("GOOGLE_API_KEY not set")
-        return ChatGoogleGenerativeAI(model=model_id)
+    byok = get_byok_credentials()
+    prov = (provider or "").lower()
+    if not prov:
+        if byok and byok.get("provider"):
+            prov = str(byok["provider"])
+        elif "gemini" in mid:
+            prov = "gemini"
+        elif "claude" in mid or "anthropic" in mid:
+            prov = "anthropic"
+        elif any(t in mid for t in ("gpt-", "o1", "o3", "o4")) and not mid.startswith("openai/"):
+            prov = "openai"
+        else:
+            prov = "groq"
+
+    key = (api_key or "").strip() or None
+    if not key and byok and byok.get("provider") == prov:
+        key = byok.get("api_key")
+
+    if prov == "gemini":
+        resolved = key or os.getenv("GOOGLE_API_KEY")
+        if not resolved:
+            raise RuntimeError("GOOGLE_API_KEY not set (and no BYOK Gemini key)")
+        return ChatGoogleGenerativeAI(model=model_id, google_api_key=resolved)
+
+    if prov == "anthropic":
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError as e:
+            raise RuntimeError(
+                "langchain-anthropic is required for Claude BYOK. "
+                "Rebuild backend with updated requirements.txt."
+            ) from e
+        resolved = key or os.getenv("ANTHROPIC_API_KEY")
+        if not resolved:
+            raise RuntimeError("No Anthropic API key (BYOK or ANTHROPIC_API_KEY)")
+        return ChatAnthropic(model=model_id, api_key=resolved)
+
+    if prov in ("openai", "openai_compatible"):
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError as e:
+            raise RuntimeError(
+                "langchain-openai is required for OpenAI / compatible BYOK. "
+                "Rebuild backend with updated requirements.txt."
+            ) from e
+        resolved = key or os.getenv("OPENAI_API_KEY")
+        if not resolved:
+            raise RuntimeError("No OpenAI-compatible API key (BYOK or OPENAI_API_KEY)")
+        kwargs: Dict[str, Any] = {"model": model_id, "api_key": resolved}
+        base = None
+        if byok and byok.get("provider") == prov:
+            base = byok.get("base_url")
+        if prov == "openai" and not base:
+            base = "https://api.openai.com/v1"
+        if base:
+            kwargs["base_url"] = base
+        elif prov == "openai_compatible":
+            raise RuntimeError("BYOK openai_compatible requires a base URL")
+        return ChatOpenAI(**kwargs)
+
     # Groq (and groq-hosted openai/* / qwen/* ids)
-    if not os.getenv("GROQ_API_KEY"):
-        raise RuntimeError("GROQ_API_KEY not set")
-    return ChatGroq(model=model_id)
+    resolved = key or os.getenv("GROQ_API_KEY")
+    if not resolved:
+        raise RuntimeError("GROQ_API_KEY not set (and no BYOK Groq key)")
+    return ChatGroq(model=model_id, api_key=resolved)
 
 
 def _candidate_chain(primary_id: str) -> List[Tuple[str, str]]:
     """Return ordered (model_id, provider) candidates without duplicates."""
     ordered: List[Tuple[str, str]] = []
     seen = set()
+    byok = get_byok_credentials()
 
     def add(mid: str, provider: str):
         key = (mid, provider)
@@ -131,6 +261,25 @@ def _candidate_chain(primary_id: str) -> List[Tuple[str, str]]:
             return
         seen.add(key)
         ordered.append((mid, provider))
+
+    if byok and byok.get("api_key") and byok.get("model"):
+        # BYOK path: try the exact user model first on their provider.
+        add(byok["model"], byok.get("provider") or "groq")
+        # Optional same-provider suggestions only — do not rewrite their model.
+        if byok.get("provider") == "gemini":
+            for mid in GEMINI_FALLBACK_MODELS:
+                add(mid, "gemini")
+        elif byok.get("provider") == "groq":
+            for mid in GROQ_FALLBACK_MODELS:
+                add(mid, "groq")
+        # Then platform fallbacks if configured.
+        if os.getenv("GOOGLE_API_KEY"):
+            for mid in GEMINI_FALLBACK_MODELS:
+                add(mid, "gemini")
+        if os.getenv("GROQ_API_KEY"):
+            for mid in GROQ_FALLBACK_MODELS:
+                add(mid, "groq")
+        return ordered
 
     primary = primary_id.lower()
     primary_provider = "gemini" if "gemini" in primary else "groq"
@@ -314,20 +463,36 @@ def get_llm(model_name: str):
     """
     Build a chat model with a multi-provider fallback chain.
 
-    Example: gemini-2.5-flash → gemini-2.0-flash → groq gpt-oss-20b → …
+    If BYOK is active for this request, prefer the user key + exact model id
+    (any catalog model for that provider), then fall back to platform keys.
     """
-    primary_id = _remap_model_id(model_name)
+    byok = get_byok_credentials()
+    requested = (byok.get("model") if byok and byok.get("model") else None) or model_name
+    primary_id = _remap_model_id(requested)
+
     candidates = _candidate_chain(primary_id)
 
     runnables = []
     for mid, provider in candidates:
         try:
-            if provider == "gemini" and not os.getenv("GOOGLE_API_KEY"):
+            has_platform = (
+                (provider == "gemini" and os.getenv("GOOGLE_API_KEY"))
+                or (provider == "groq" and os.getenv("GROQ_API_KEY"))
+                or (provider in ("openai", "openai_compatible") and os.getenv("OPENAI_API_KEY"))
+                or (provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"))
+            )
+            has_byok = bool(byok and byok.get("provider") == provider and byok.get("api_key"))
+            if not has_platform and not has_byok:
                 continue
-            if provider == "groq" and not os.getenv("GROQ_API_KEY"):
-                continue
-            runnables.append(_build_chat_model(mid))
-            logger.info("LLM candidate registered", extra={"model": mid, "provider": provider})
+            runnables.append(_build_chat_model(mid, provider=provider))
+            logger.info(
+                "LLM candidate registered",
+                extra={
+                    "model": mid,
+                    "provider": provider,
+                    "via": "byok" if has_byok else "platform",
+                },
+            )
         except Exception as e:
             logger.warning(
                 "Skipping LLM candidate",
@@ -335,14 +500,15 @@ def get_llm(model_name: str):
             )
 
     if not runnables:
-        # Fallback to local if allowed or raise sensible error
-        logger.warning("No API keys found for Google or Groq LLMs")
-        return _build_chat_model(DEFAULT_GEMINI_MODEL)
+        logger.warning("No API keys found for LLMs (BYOK or platform)")
+        raise RuntimeError(
+            "No LLM API keys available. Enter a BYOK key + model in the UI, or set "
+            "GOOGLE_API_KEY / GROQ_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY on the server."
+        )
 
     primary = runnables[0]
     if len(runnables) == 1:
         return primary
 
-    # LangChain tries the next runnable when the previous raises.
     return primary.with_fallbacks(runnables[1:])
 

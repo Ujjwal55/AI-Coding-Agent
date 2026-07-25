@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Download, FileCode2 } from "lucide-react";
+import { CheckCircle2, Download, FileCode2, MessageSquareWarning } from "lucide-react";
 import type { FileNode } from "@/domain/types";
 
 interface ResultPanelProps {
@@ -10,6 +10,10 @@ interface ResultPanelProps {
   downloadUrl: string | null;
   fileTree: FileNode[];
   onOpenFile: (path: string) => Promise<string>;
+  /** When false, run was stopped by the intent guardrail (not a coding task). */
+  isCodingTask?: boolean;
+  intentKind?: string | null;
+  guardrailMessage?: string | null;
 }
 
 export default function ResultPanel({
@@ -18,7 +22,11 @@ export default function ResultPanel({
   downloadUrl,
   fileTree,
   onOpenFile,
+  isCodingTask = true,
+  intentKind = null,
+  guardrailMessage = null,
 }: ResultPanelProps) {
+  const rejected = !isCodingTask || Boolean(guardrailMessage);
   const files = useMemo(
     () => fileTree.filter((f) => !f.is_dir).map((f) => f.path),
     [fileTree],
@@ -32,7 +40,7 @@ export default function ResultPanel({
     setSelectedPath(null);
     setFileContent(null);
     setFileError(null);
-  }, [summary, fileTree]);
+  }, [summary, fileTree, guardrailMessage]);
 
   const handleSelect = async (path: string) => {
     setSelectedPath(path);
@@ -48,6 +56,34 @@ export default function ResultPanel({
       setLoadingFile(false);
     }
   };
+
+  if (rejected) {
+    return (
+      <section className="flex min-h-0 flex-1 flex-col bg-white">
+        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-3 py-2">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-amber-950">
+            <MessageSquareWarning className="h-4 w-4" />
+            Not a coding task
+            {intentKind ? (
+              <span className="ml-1 rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 ring-1 ring-amber-200">
+                {intentKind}
+              </span>
+            ) : null}
+          </h3>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3">
+          <p className="text-xs text-slate-600">
+            The intent guardrail stopped the loop before Criteria / Planner /
+            Executor so chat or gibberish doesn’t burn time or tokens.
+          </p>
+          <pre className="whitespace-pre-wrap rounded border border-amber-200 bg-amber-50/80 p-3 text-[12px] text-amber-950">
+            {guardrailMessage ||
+              "Please enter a concrete coding objective and run again."}
+          </pre>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-white">

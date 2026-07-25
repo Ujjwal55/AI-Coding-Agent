@@ -47,6 +47,17 @@ class GraphState(TypedDict):
     # Pause reason for the frontend to know which panel to show
     pause_reason: Optional[str]  # "criteria_review", "plan_review", "code_review"
 
+    # Intent guardrail (Objective node): coding task vs conversation / gibberish
+    is_coding_task: bool
+    intent_kind: Optional[str]  # "coding_task" | "conversation" | "unclear"
+    guardrail_message: Optional[str]
+
+    # BYOK — user-supplied key for this run (redacted when persisted to state_json)
+    byok_provider: Optional[str]  # "gemini" | "groq" | "openai" | "openai_compatible" | "anthropic"
+    byok_api_key: Optional[str]
+    byok_model: Optional[str]
+    byok_base_url: Optional[str]
+
     # Dynamic UI Configuration injected by graph compiler
     _current_node_config: Optional[Dict[str, Any]]
 

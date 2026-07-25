@@ -36,6 +36,12 @@ import {
   parseWorkflowFile,
 } from "@/utils/nodeConverter";
 import { getApiBaseUrl } from "@/utils/apiBaseUrl";
+import {
+  byokRunFields,
+  loadByokSettings,
+  saveByokSettings,
+  type ByokSettings,
+} from "@/utils/byok";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -139,6 +145,7 @@ export default function ControlPlanePage() {
     useState<ReactFlowInstance | null>(null);
   const [events, setEvents] = useState<UiEvent[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
+  const [byok, setByok] = useState<ByokSettings>(() => loadByokSettings());
   const [mission, setMission] = useState<MissionState>({
     objective: "",
     repoPath: null,
@@ -150,6 +157,7 @@ export default function ControlPlanePage() {
   });
 
   const { prepare } = usePrepareMission(eventsPort);
+  const getByokFields = useCallback(() => byokRunFields(byok), [byok]);
   const {
     runStatus,
     pauseReason,
@@ -158,6 +166,9 @@ export default function ControlPlanePage() {
     codeChangesSummary,
     successCriteria,
     llmUsage,
+    guardrailMessage,
+    intentKind,
+    isCodingTask,
     lastError,
     isBusy,
     isGraphLocked,
@@ -170,8 +181,12 @@ export default function ControlPlanePage() {
     cancelLocal,
     pauseLocal,
     resumeLocal,
-  } = useWorkflowRun({ workflowApi, eventsPort });
+  } = useWorkflowRun({ workflowApi, eventsPort, getByokFields });
 
+  const handleByokChange = useCallback((next: ByokSettings) => {
+    setByok(next);
+    saveByokSettings(next);
+  }, []);
   const [consoleExpanded, setConsoleExpanded] = useState(false);
 
   useEffect(() => {
@@ -574,6 +589,8 @@ export default function ControlPlanePage() {
         isBusy={isBusy}
         importError={importError}
         llmUsage={llmUsage}
+        byok={byok}
+        onByokChange={handleByokChange}
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value }))
         }
@@ -672,6 +689,9 @@ export default function ControlPlanePage() {
               summary={codeChangesSummary}
               downloadUrl={downloadUrl}
               fileTree={mission.fileTree}
+              isCodingTask={isCodingTask}
+              intentKind={intentKind}
+              guardrailMessage={guardrailMessage}
               onOpenFile={async (path) => {
                 if (!mission.workspaceId) {
                   throw new Error("No workspace uploaded");
