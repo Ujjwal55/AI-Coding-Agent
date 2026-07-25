@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { Download, GitPullRequestArrow, ThumbsUp } from "lucide-react";
 import { validateHumanFeedback } from "@/utils/feedbackGuardrail";
+import DiffView, { type FileArtifact } from "@/components/control/DiffView";
 
 interface CodeReviewPanelProps {
   isOpen: boolean;
   summary: string | null;
   downloadUrl: string | null;
+  artifacts?: FileArtifact[];
+  touchedFiles?: string[];
   onApprove: () => void;
   onRequestChanges: (feedback: string) => void;
   isBusy?: boolean;
@@ -17,6 +20,8 @@ export default function CodeReviewPanel({
   isOpen,
   summary,
   downloadUrl,
+  artifacts = [],
+  touchedFiles = [],
   onApprove,
   onRequestChanges,
   isBusy = false,
@@ -33,6 +38,11 @@ export default function CodeReviewPanel({
     setGuardError(null);
     onRequestChanges(feedback.trim());
   };
+
+  const files =
+    touchedFiles.length > 0
+      ? touchedFiles
+      : artifacts.map((a) => a.file).filter(Boolean);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-white">
@@ -56,10 +66,36 @@ export default function CodeReviewPanel({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-          <div className="min-h-0 flex-1 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-3">
-            <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-800">
-              {summary || "No code change summary."}
-            </pre>
+          {files.length > 0 && (
+            <div className="rounded border border-amber-200 bg-amber-50/60 px-2.5 py-2">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                Touched files ({files.length})
+              </p>
+              <ul className="flex flex-wrap gap-1">
+                {files.map((f) => (
+                  <li
+                    key={f}
+                    className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-700 ring-1 ring-amber-100"
+                  >
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+            <DiffView artifacts={artifacts} touchedFiles={touchedFiles} />
+            {summary && (
+              <details className="rounded border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-semibold text-slate-600">
+                  Change summary
+                </summary>
+                <pre className="whitespace-pre-wrap break-words border-t border-slate-200 px-2 py-2 font-sans text-xs leading-relaxed text-slate-800">
+                  {summary}
+                </pre>
+              </details>
+            )}
           </div>
 
           <textarea

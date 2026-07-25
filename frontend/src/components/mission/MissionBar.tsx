@@ -31,6 +31,9 @@ interface MissionBarProps {
   llmUsage?: LlmUsage | null;
   byok: ByokSettings;
   onByokChange: (next: ByokSettings) => void;
+  costBudgetUsd: number | null;
+  onCostBudgetChange: (next: number | null) => void;
+  workspaceLangLabel?: string | null;
   onObjectiveChange: (value: string) => void;
   onUploadFolder: (files: FileList) => void;
   onEmptyWorkspace: () => void;
@@ -56,6 +59,9 @@ export default function MissionBar({
   llmUsage,
   byok,
   onByokChange,
+  costBudgetUsd,
+  onCostBudgetChange,
+  workspaceLangLabel,
   onObjectiveChange,
   onUploadFolder,
   onEmptyWorkspace,
@@ -72,9 +78,20 @@ export default function MissionBar({
   const fileCount = mission.fileTree.filter((f) => !f.is_dir).length;
   const byokActive = Boolean(byok.apiKey.trim());
   const [byokOpen, setByokOpen] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState(
+    costBudgetUsd != null ? String(costBudgetUsd) : "",
+  );
 
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const usagePopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setBudgetDraft(costBudgetUsd != null ? String(costBudgetUsd) : "");
+  }, [costBudgetUsd]);
+
+  const spent = llmUsage?.estimated_cost_usd ?? 0;
+  const budgetActive = costBudgetUsd != null && costBudgetUsd > 0;
+  const budgetOver = budgetActive && spent >= costBudgetUsd;
 
   const modelSuggestions = MODEL_SUGGESTIONS[byok.provider] ?? [];
   const needsBaseUrl =
@@ -359,9 +376,11 @@ export default function MissionBar({
           label={
             !mission.workspaceId
               ? "repo: not uploaded"
-              : fileCount === 0
-                ? "repo: empty workspace"
-                : `repo: ${fileCount} files`
+              : workspaceLangLabel
+                ? workspaceLangLabel
+                : fileCount === 0
+                  ? "repo: empty workspace"
+                  : `repo: ${fileCount} files`
           }
         />
         <Chip
@@ -377,7 +396,43 @@ export default function MissionBar({
               : "byok: off (platform keys)"
           }
         />
-
+        <label
+          className={
+            budgetOver
+              ? "inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-800 ring-1 ring-rose-200"
+              : budgetActive
+                ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200"
+                : "inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
+          }
+          title="Soft USD spend cap for LLM calls this run. Leave empty for unlimited."
+        >
+          <Coins className="h-3 w-3" />
+          budget $
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            disabled={isBusy}
+            value={budgetDraft}
+            placeholder="∞"
+            onChange={(e) => setBudgetDraft(e.target.value)}
+            onBlur={() => {
+              const n = Number(budgetDraft);
+              if (!budgetDraft.trim() || !Number.isFinite(n) || n <= 0) {
+                onCostBudgetChange(null);
+                setBudgetDraft("");
+              } else {
+                onCostBudgetChange(n);
+              }
+            }}
+            className="w-14 border-0 bg-transparent p-0 text-xs font-semibold outline-none"
+          />
+          {budgetActive && (
+            <span className="font-mono font-normal opacity-80">
+              · spent ${spent.toFixed(4)}
+            </span>
+          )}
+        </label>
         {llmUsage && llmUsage.total_calls > 0 && (
           <>
             <div className="h-4 w-px bg-slate-300 mx-1" />

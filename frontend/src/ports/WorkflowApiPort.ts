@@ -14,6 +14,8 @@ export interface RunOptions {
   byokApiKey?: string | null;
   byokModel?: string | null;
   byokBaseUrl?: string | null;
+  /** Soft USD spend cap; omit or null = unlimited */
+  costBudgetUsd?: number | null;
 }
 
 /** Resume actions understood by the backend /resume endpoint. */
@@ -31,6 +33,7 @@ export interface ResumeOptions {
   byokApiKey?: string | null;
   byokModel?: string | null;
   byokBaseUrl?: string | null;
+  costBudgetUsd?: number | null;
 }
 
 /** Port for orchestrator HTTP API. Swap adapter without changing UI. */

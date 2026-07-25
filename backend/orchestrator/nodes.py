@@ -1,6 +1,7 @@
 from orchestrator.state import GraphState
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
+import difflib
 import os
 from agents.llm import get_llm, normalize_llm_content, extract_llm_metrics, aggregate_llm_usage
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -11,6 +12,27 @@ logger = get_logger(__name__)
 
 WORKSPACES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "workspaces"))
 STEP_DELAY_SECONDS = float(os.getenv("STEP_DELAY_SECONDS", "10"))
+# How many source files / how large each may be when building executor LLM context.
+# Full repos still upload; only the prompt slice is capped.
+EXECUTOR_MAX_FILES = int(os.getenv("EXECUTOR_MAX_FILES", "50"))
+EXECUTOR_MAX_FILE_BYTES = int(os.getenv("EXECUTOR_MAX_FILE_BYTES", str(80 * 1024)))
+DIFF_MAX_CHARS = 12_000
+
+
+def _unified_diff(path: str, old: str, new: str) -> str:
+    old_lines = old.splitlines(keepends=True)
+    new_lines = new.splitlines(keepends=True)
+    text = "".join(
+        difflib.unified_diff(
+            old_lines,
+            new_lines,
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+        )
+    )
+    if len(text) > DIFF_MAX_CHARS:
+        text = text[:DIFF_MAX_CHARS] + "\n... (diff truncated)\n"
+    return text
 
 
 async def planner_node(state: GraphState) -> Dict[str, Any]:
@@ -243,8 +265,8 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
         for fname in files:
             fpath = os.path.join(root, fname)
             rel_path = os.path.relpath(fpath, workspace_path)
-            # Only read text-like source files under 30KB
-            if os.path.getsize(fpath) > 30 * 1024:
+            # Only read text-like source files under the size cap
+            if os.path.getsize(fpath) > EXECUTOR_MAX_FILE_BYTES:
                 continue
             try:
                 with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -255,7 +277,7 @@ async def executor_node(state: GraphState) -> Dict[str, Any]:
 
     # Build context for LLM
     files_context = ""
-    for path, content in list(files_content.items())[:20]:  # Limit to 20 files
+    for path, content in list(files_content.items())[:EXECUTOR_MAX_FILES]:
         files_context += f"\n--- FILE: {path} ---\n{content}\n"
 
     system_prompt = """You are an expert software engineer. You are given:
@@ -314,7 +336,9 @@ Please generate the code changes now."""
         )
 
         # Parse LLM output and write files
-        changes_made = []
+        changes_made: List[str] = []
+        artifacts: List[Dict[str, Any]] = []
+        touched_files: List[str] = []
         import re
 
         # Parse WRITE_FILE blocks - more forgiving regex
@@ -348,11 +372,18 @@ Please generate the code changes now."""
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(file_content)
 
+            action = "modified" if old_content else "created"
             if old_content:
                 changes_made.append(f"**Modified**: `{file_path}`")
             else:
                 changes_made.append(f"**Created**: `{file_path}`")
-                
+
+            artifacts.append({
+                "file": file_path,
+                "action": action,
+                "unified_diff": _unified_diff(file_path, old_content, file_content),
+            })
+            touched_files.append(file_path)
             add_files_touched("executor", [file_path])
 
         # Parse DELETE_FILE blocks
@@ -363,8 +394,16 @@ Please generate the code changes now."""
             if not os.path.abspath(full_path).startswith(os.path.abspath(workspace_path)):
                 continue
             if os.path.exists(full_path):
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    old_content = f.read()
                 os.remove(full_path)
                 changes_made.append(f"**Deleted**: `{file_path}`")
+                artifacts.append({
+                    "file": file_path,
+                    "action": "deleted",
+                    "unified_diff": _unified_diff(file_path, old_content, ""),
+                })
+                touched_files.append(file_path)
                 add_files_touched("executor", [file_path])
 
         if not changes_made:
@@ -376,7 +415,8 @@ Please generate the code changes now."""
             **usage_updates,
             "executor_output": llm_output,
             "current_attempt": state.get("current_attempt", 0) + 1,
-            "artifacts": [{"file": c, "diff": "modified"} for c in changes_made],
+            "artifacts": artifacts,
+            "touched_files": touched_files,
             "code_changes_summary": code_changes_summary,
             "pause_reason": None,  # clear plan_review; next gate is code review
         }

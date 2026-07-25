@@ -4,7 +4,34 @@ Append newest entries at the top. Keep bullets outcome-focused (“why”), with
 
 ---
 
-## 2026-07-25 — Simplified default loop + docs refresh
+## 2026-07-25 — Diff / budget / language badge
+
+- Code Review shows **unified diffs** + touched-file chips (executor stores `artifacts` / `touched_files`).
+- MissionBar **spend budget** chip (`cost_budget_usd`) — stops further planner/executor LLM calls when exceeded.
+- Upload chip shows language detection (e.g. `Detected: Go · 42 files`) via extension/manifest heuristics.
+
+---
+
+## 2026-07-25 — BYOK (bring your own key)
+
+- MissionBar optional BYOK panel: provider (Gemini / Groq / OpenAI / Anthropic Claude / OpenAI-compatible) + API key.
+- With a key, **any model id** the provider accepts (free-text + suggestions); optional base URL for OpenAI / compatible endpoints.
+- Key lives in `sessionStorage` only; sent on Run/Resume; redacted in persisted `state_json`.
+- `agents/llm.py` uses ContextVar BYOK → prefer user key/model (no remap), fall back to platform env keys.
+- OpenAI-compatible path via `langchain-openai` (`byok_base_url`).
+
+---
+
+## 2026-07-25 — Intent guardrail
+
+- Objective node classifies the input as `coding_task` / `conversation` / `unclear` (`agents/intent_guard.py`).
+- Fast heuristic for greetings / short gibberish (e.g. “Hi”) — **no LLM**, exits before Criteria delays.
+- Ambiguous inputs may use a single cheap LLM classify; clear coding tasks continue the loop.
+- Graph: `after_objective_route` → continue to Criteria or END.
+- UI: `ResultPanel` shows “Not a coding task” + `guardrail_message` instead of Task Successful.
+- **Human feedback guardrail:** Plan Review / Code Review reject chat/gibberish via `classify_human_feedback` on `/resume` + client-side `feedbackGuardrail.ts` (inline amber error; run stays paused).
+
+---
 
 ### Product / loop
 - Default canvas reduced to **8 nodes**: drop explicit Code Understanding + Decision from the template graph.

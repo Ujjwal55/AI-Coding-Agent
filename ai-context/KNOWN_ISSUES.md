@@ -38,6 +38,8 @@ Read this before debugging “why is my run weird?”
 
 17. **No DB template gallery.** A short-lived `is_template` migration/UI was reverted. Use MissionBar **Export / Import** JSON for reusable graphs. Run still creates ephemeral Workflow + Version rows named like “UI Generated Workflow”.
 18. If a local DB somehow has an `is_template` column from that attempt, it is unused; stamp Alembic to `001_initial` if upgrade complains about a missing `002` revision.
+    **Symptom if not stamped:** backend lifespan hangs on `alembic upgrade head` (DB `alembic_version` points at deleted `002_workflow_is_template` while only `001_initial.py` exists). `/health` and `/api/upload` time out → MissionBar stuck on **Uploading…** for Empty workspace.  
+    Fix: `UPDATE alembic_version SET version_num='001_initial';` (and `DROP COLUMN is_template` if present), then `docker restart ai_loop_backend`.
 
 ## React Flow
 
