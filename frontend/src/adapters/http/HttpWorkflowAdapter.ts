@@ -140,4 +140,13 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
     }
     return res.json();
   }
+
+  async clearMetadata(): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/workflows/metadata/clear`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to clear metadata: ${res.statusText}`);
+    }
+  }
 }

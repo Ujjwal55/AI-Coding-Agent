@@ -173,6 +173,7 @@ export default function ControlPlanePage() {
   } = useWorkflowRun({ workflowApi, eventsPort });
 
   const [consoleExpanded, setConsoleExpanded] = useState(false);
+  const [telemetryEpoch, setTelemetryEpoch] = useState(0);
 
   useEffect(() => {
     const unsub = eventsPort.subscribe(setEvents);
@@ -523,21 +524,33 @@ export default function ControlPlanePage() {
     if (runStatus === "running") {
       await pauseLocal();
     }
+    try {
+      await workflowApi.clearMetadata();
+    } catch (err) {
+      console.error("Failed to clear telemetry metadata:", err);
+    }
     cancelLocal();
     eventsPort.reset();
-    
+    setTelemetryEpoch((n) => n + 1);
+
     // Explicitly reset the status in the base nodes state
-    setNodes((nds) => 
+    setNodes((nds) =>
       nds.map((n) => ({
         ...n,
-        data: { ...n.data, status: "pending" }
-      }))
+        data: { ...n.data, status: "pending" },
+      })),
     );
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    try {
+      await workflowApi.clearMetadata();
+    } catch {
+      /* ignore */
+    }
     cancelLocal();
     eventsPort.reset();
+    setTelemetryEpoch((n) => n + 1);
   };
 
   const downloadUrl = mission.workspaceId
@@ -615,6 +628,7 @@ export default function ControlPlanePage() {
           executionView={executionView}
           onUpdateData={updateNodeData}
           fetchMetadata={workflowApi.fetchMetadata.bind(workflowApi)}
+          telemetryEpoch={telemetryEpoch}
         />
       </div>
 

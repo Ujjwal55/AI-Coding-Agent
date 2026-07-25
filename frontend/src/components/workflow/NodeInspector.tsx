@@ -10,6 +10,8 @@ interface NodeInspectorProps {
   executionView: NodeExecutionView | null;
   onUpdateData: (id: string, key: string, value: string) => void;
   fetchMetadata?: () => Promise<Record<string, NodeMetadata>>;
+  /** Bumps on Restart so inspector drops stale telemetry immediately. */
+  telemetryEpoch?: number;
 }
 
 const MODEL_OPTIONS = [
@@ -36,6 +38,7 @@ export default function NodeInspector({
   executionView,
   onUpdateData,
   fetchMetadata,
+  telemetryEpoch = 0,
 }: NodeInspectorProps) {
   const [metadata, setMetadata] = useState<NodeMetadata | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(false);
@@ -93,7 +96,7 @@ export default function NodeInspector({
       mounted = false;
       clearInterval(interval);
     };
-  }, [selectedNodeId, selectedNodeType]);
+  }, [selectedNodeId, selectedNodeType, telemetryEpoch]);
 
   if (!selectedNode) {
     return (

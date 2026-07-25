@@ -66,4 +66,7 @@ export interface WorkflowApiPort {
   pauseActive(): Promise<void>;
 
   fetchMetadata(): Promise<Record<string, any>>;
+
+  /** Clear per-node telemetry metadata (Restart). */
+  clearMetadata(): Promise<void>;
 }

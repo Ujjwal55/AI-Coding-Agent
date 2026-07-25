@@ -30,6 +30,15 @@ async def get_node_metadata():
     from utils.metadata_tracker import get_metadata
     return get_metadata()
 
+
+@router.post("/metadata/clear")
+async def clear_node_metadata():
+    """Reset per-node telemetry (used on Restart)."""
+    from utils.metadata_tracker import clear_metadata
+    clear_metadata()
+    logger.info("Node telemetry metadata cleared")
+    return {"status": "cleared"}
+
 @router.post("/", response_model=WorkflowRead)
 async def create_workflow(workflow: WorkflowCreate, db: AsyncSession = Depends(get_db)):
     logger.info("Creating new workflow", extra={"workflow_name": workflow.name})

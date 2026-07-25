@@ -198,6 +198,8 @@ export function useWorkflowRun({
       eventsPort.reset();
 
       try {
+        // Ensure previous run's per-node telemetry does not linger in the inspector.
+        await workflowApi.clearMetadata().catch(() => undefined);
         eventsPort.append({
           runId: null,
           eventType: "run_started",
@@ -307,6 +309,11 @@ export function useWorkflowRun({
     setPauseReason(null);
     setRunStatus("idle");
     setLastError(null);
+    setCurrentPlan(null);
+    setPlanRevision(0);
+    setCodeChangesSummary(null);
+    setSuccessCriteria([]);
+    setLlmUsage(null);
   }, [eventsPort, pausedRunId]);
 
   const pauseLocal = useCallback(async () => {
