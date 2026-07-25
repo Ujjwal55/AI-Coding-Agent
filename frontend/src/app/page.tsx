@@ -42,6 +42,11 @@ import {
   saveByokSettings,
   type ByokSettings,
 } from "@/utils/byok";
+import {
+  loadCostBudgetUsd,
+  saveCostBudgetUsd,
+} from "@/utils/costBudget";
+import { detectWorkspaceLanguages } from "@/utils/detectWorkspaceLanguages";
 
 const NODE_X = 320;
 const NODE_GAP = 84;
@@ -89,8 +94,8 @@ const IGNORE_DIRS = new Set([
   "coverage",
   ".cache",
 ]);
-const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB per file
-const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB total
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB per file
+const MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100 MB total
 
 async function zipSelectedFolder(
   files: FileList,
@@ -111,7 +116,7 @@ async function zipSelectedFolder(
     total += file.size;
     if (total > MAX_TOTAL_BYTES) {
       return {
-        error: "Repository is too large after filtering (>50MB). Try a smaller repo.",
+        error: "Repository is too large after filtering (>100MB). Try a smaller repo.",
       };
     }
     zip.file(stripped, file);
@@ -146,6 +151,9 @@ export default function ControlPlanePage() {
   const [events, setEvents] = useState<UiEvent[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
   const [byok, setByok] = useState<ByokSettings>(() => loadByokSettings());
+  const [costBudgetUsd, setCostBudgetUsd] = useState<number | null>(() =>
+    loadCostBudgetUsd(),
+  );
   const [mission, setMission] = useState<MissionState>({
     objective: "",
     repoPath: null,
@@ -157,13 +165,21 @@ export default function ControlPlanePage() {
   });
 
   const { prepare } = usePrepareMission(eventsPort);
-  const getByokFields = useCallback(() => byokRunFields(byok), [byok]);
+  const getRunExtras = useCallback(
+    () => ({
+      ...byokRunFields(byok),
+      costBudgetUsd,
+    }),
+    [byok, costBudgetUsd],
+  );
   const {
     runStatus,
     pauseReason,
     currentPlan,
     planRevision,
     codeChangesSummary,
+    artifacts,
+    touchedFiles,
     successCriteria,
     llmUsage,
     guardrailMessage,
@@ -181,7 +197,7 @@ export default function ControlPlanePage() {
     cancelLocal,
     pauseLocal,
     resumeLocal,
-  } = useWorkflowRun({ workflowApi, eventsPort, getByokFields });
+  } = useWorkflowRun({ workflowApi, eventsPort, getRunExtras });
 
   const handleByokChange = useCallback((next: ByokSettings) => {
     setByok(next);
@@ -189,6 +205,16 @@ export default function ControlPlanePage() {
   }, []);
   const [consoleExpanded, setConsoleExpanded] = useState(false);
   const [telemetryEpoch, setTelemetryEpoch] = useState(0);
+
+  const handleBudgetChange = useCallback((next: number | null) => {
+    setCostBudgetUsd(next);
+    saveCostBudgetUsd(next);
+  }, []);
+
+  const workspaceLang = useMemo(
+    () => detectWorkspaceLanguages(mission.fileTree),
+    [mission.fileTree],
+  );
 
   useEffect(() => {
     const unsub = eventsPort.subscribe(setEvents);
@@ -604,6 +630,11 @@ export default function ControlPlanePage() {
         llmUsage={llmUsage}
         byok={byok}
         onByokChange={handleByokChange}
+        costBudgetUsd={costBudgetUsd}
+        onCostBudgetChange={handleBudgetChange}
+        workspaceLangLabel={
+          mission.workspaceId ? workspaceLang.label : null
+        }
         onObjectiveChange={(value) =>
           setMission((m) => ({ ...m, objective: value }))
         }
@@ -719,6 +750,8 @@ export default function ControlPlanePage() {
               isOpen={isPaused}
               summary={codeChangesSummary}
               downloadUrl={downloadUrl}
+              artifacts={artifacts}
+              touchedFiles={touchedFiles}
               onApprove={approveCode}
               onRequestChanges={requestCodeChanges}
               isBusy={isBusy}
@@ -742,6 +775,7 @@ export default function ControlPlanePage() {
                   ? successCriteria.map((c, i) => `${i + 1}. ${c}`).join("\n")
                   : ""
               }
+              touchedFiles={touchedFiles}
               onApprove={(text) => approveCriteria(text)}
               isBusy={isBusy}
             />

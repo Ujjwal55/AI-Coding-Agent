@@ -10,6 +10,11 @@ from utils.metadata_tracker import record_llm_metrics
 
 logger = get_logger(__name__)
 
+CODE_UNDERSTANDING_MAX_FILES = int(os.getenv("CODE_UNDERSTANDING_MAX_FILES", "25"))
+CODE_UNDERSTANDING_MAX_FILE_BYTES = int(
+    os.getenv("CODE_UNDERSTANDING_MAX_FILE_BYTES", str(100 * 1024))
+)
+
 async def code_understanding_node(state: GraphState) -> Dict[str, Any]:
     workspace_id = state.get("workspace_id")
     if not workspace_id:
@@ -51,9 +56,33 @@ async def code_understanding_node(state: GraphState) -> Dict[str, Any]:
     # Identify important files to read
     priority_patterns = [
         ["README.md", "README.rst", "README.txt"],
-        ["package.json", "requirements.txt", "setup.py", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml"],
-        ["main.py", "app.py", "index.js", "index.ts", "src/index.*", "src/main.*", "src/app.*"],
-        [".env.example", "docker-compose.yml", "Dockerfile", "tsconfig.json"]
+        [
+            "package.json",
+            "requirements.txt",
+            "setup.py",
+            "pyproject.toml",
+            "Cargo.toml",
+            "go.mod",
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "CMakeLists.txt",
+            "Makefile",
+        ],
+        [
+            "main.py",
+            "app.py",
+            "main.go",
+            "main.rs",
+            "Main.java",
+            "index.js",
+            "index.ts",
+            "src/index.*",
+            "src/main.*",
+            "src/app.*",
+            "cmd/*/main.go",
+        ],
+        [".env.example", "docker-compose.yml", "Dockerfile", "tsconfig.json"],
     ]
     
     prioritized_files: List[str] = []
@@ -74,11 +103,10 @@ async def code_understanding_node(state: GraphState) -> Dict[str, Any]:
     read_count = 0
     
     for file_path in prioritized_files:
-        if read_count >= 15:
+        if read_count >= CODE_UNDERSTANDING_MAX_FILES:
             break
         try:
-            # Skip files larger than 50KB
-            if os.path.getsize(file_path) > 50 * 1024:
+            if os.path.getsize(file_path) > CODE_UNDERSTANDING_MAX_FILE_BYTES:
                 continue
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()

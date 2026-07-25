@@ -1,11 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { User } from "lucide-react";
+import { FileCode2, User } from "lucide-react";
 
 interface HumanGatePanelProps {
   isOpen: boolean;
   initialCriteria?: string;
+  touchedFiles?: string[];
   onApprove: (criteriaText: string) => void;
   isBusy?: boolean;
 }
@@ -13,6 +14,7 @@ interface HumanGatePanelProps {
 export default function HumanGatePanel({
   isOpen,
   initialCriteria = "",
+  touchedFiles = [],
   onApprove,
   isBusy = false,
 }: HumanGatePanelProps) {
@@ -43,9 +45,27 @@ export default function HumanGatePanel({
               </p>
               <p className="mt-1 max-w-[220px] text-xs leading-relaxed text-amber-800/75">
                 When the run pauses for criteria review, Edit and Approve appear
-                here.
+                here. Code review shows diffs in the Code Review panel.
               </p>
             </div>
+            {touchedFiles.length > 0 && (
+              <div className="mt-1 w-full rounded-lg border border-amber-200/80 bg-white/70 px-2.5 py-2 text-left">
+                <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                  <FileCode2 className="h-3 w-3" />
+                  Last touched ({touchedFiles.length})
+                </p>
+                <ul className="flex flex-wrap gap-1">
+                  {touchedFiles.map((f) => (
+                    <li
+                      key={f}
+                      className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+                    >
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-1 flex-col items-stretch gap-4 rounded-xl border border-amber-200 bg-[#FFF7ED] p-4 shadow-sm">
@@ -62,6 +82,24 @@ export default function HumanGatePanel({
                 </p>
               </div>
             </div>
+
+            {touchedFiles.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-white px-2.5 py-2">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                  Touched files ({touchedFiles.length})
+                </p>
+                <ul className="flex flex-wrap gap-1">
+                  {touchedFiles.map((f) => (
+                    <li
+                      key={f}
+                      className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+                    >
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {(editing || criteriaText.trim()) && (
               <textarea

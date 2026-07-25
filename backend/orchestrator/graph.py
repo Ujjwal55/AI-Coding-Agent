@@ -58,6 +58,18 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             runtime_state.GLOBAL_PAUSE_REQUESTED = False
             logger.info("Halting node execution due to global pause request.", extra={"node_id": node_id})
             raise NodeInterrupt("user_paused")
+
+        # Soft spend cap — block further LLM-heavy nodes when over budget.
+        # Allow validator / human gates so the user can still review work already done.
+        if node_type in (
+            "planner",
+            "executor",
+            "criteria",
+            "code_understanding",
+        ):
+            from utils.budget import assert_budget_allows_llm
+
+            assert_budget_allows_llm(state, node_type=node_type)
             
         from utils.metadata_tracker import start_node, end_node
         start_node(node_type)
@@ -68,6 +80,10 @@ def create_node_wrapper(base_func, node_id: str, node_data: dict):
             # Persist node UI config so conditional routers (decision / plan_review)
             # can read maxRetries / maxPlanRevisions from this node's settings.
             result = {**result, "_current_node_config": node_data}
+
+            from utils.budget import merge_budget_flags
+
+            result = merge_budget_flags(result, state)
 
             val_status = result.get("validation_status")
             final_status = "failed" if val_status == "FAIL" else "completed"

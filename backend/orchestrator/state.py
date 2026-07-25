@@ -64,4 +64,11 @@ class GraphState(TypedDict):
     # Token, Model Call, and Cost Tracking Metrics
     llm_usage: Optional[Dict[str, Any]]
 
+    # Soft spend cap (USD). When exceeded, further LLM nodes stop the run.
+    cost_budget_usd: Optional[float]
+    budget_exceeded: bool
+
+    # Files created/modified/deleted by the executor (for Human Gate UI)
+    touched_files: Optional[List[str]]
+
 

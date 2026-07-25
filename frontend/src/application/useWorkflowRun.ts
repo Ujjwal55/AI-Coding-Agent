@@ -18,12 +18,13 @@ import type {
 interface UseWorkflowRunOptions {
   workflowApi: WorkflowApiPort;
   eventsPort: RunEventsPort;
-  /** Optional BYOK fields merged into every run / resume call. */
-  getByokFields?: () => {
+  /** Optional fields merged into every run / resume call (BYOK + spend budget). */
+  getRunExtras?: () => {
     byokProvider?: "gemini" | "groq" | "openai" | "openai_compatible" | "anthropic";
     byokApiKey?: string;
     byokModel?: string;
     byokBaseUrl?: string;
+    costBudgetUsd?: number | null;
   };
 }
 
@@ -65,7 +66,7 @@ function firstNodeOfType(nodes: Node[], type: string): Node | undefined {
 export function useWorkflowRun({
   workflowApi,
   eventsPort,
-  getByokFields,
+  getRunExtras,
 }: UseWorkflowRunOptions) {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [pausedRunId, setPausedRunId] = useState<string | null>(null);
@@ -77,6 +78,10 @@ export function useWorkflowRun({
   );
   const [successCriteria, setSuccessCriteria] = useState<string[]>([]);
   const [llmUsage, setLlmUsage] = useState<LlmUsage | null>(null);
+  const [artifacts, setArtifacts] = useState<
+    Array<{ file: string; action?: string; unified_diff?: string }>
+  >([]);
+  const [touchedFiles, setTouchedFiles] = useState<string[]>([]);
   const [guardrailMessage, setGuardrailMessage] = useState<string | null>(null);
   const [intentKind, setIntentKind] = useState<string | null>(null);
   const [isCodingTask, setIsCodingTask] = useState(true);
@@ -151,10 +156,22 @@ export function useWorkflowRun({
         typeof state.llm_usage === "object" && state.llm_usage !== null
           ? (state.llm_usage as LlmUsage)
           : null;
+      const arts = Array.isArray(state.artifacts)
+        ? (state.artifacts as Array<{
+            file: string;
+            action?: string;
+            unified_diff?: string;
+          }>).filter((a) => a && typeof a.file === "string")
+        : [];
+      const touched = Array.isArray(state.touched_files)
+        ? (state.touched_files as string[]).filter((f) => typeof f === "string")
+        : arts.map((a) => a.file);
       const guardrail =
         typeof state.guardrail_message === "string"
           ? state.guardrail_message
-          : null;
+          : typeof state.error === "string"
+            ? state.error
+            : null;
       const intent =
         typeof state.intent_kind === "string" ? state.intent_kind : null;
       const coding =
@@ -169,6 +186,8 @@ export function useWorkflowRun({
       setSuccessCriteria(criteria);
       setPlanRevision(revision);
       setLlmUsage(usage);
+      setArtifacts(arts);
+      setTouchedFiles(touched);
       setGuardrailMessage(guardrail);
       setIntentKind(intent);
       setIsCodingTask(coding);
@@ -249,10 +268,10 @@ export function useWorkflowRun({
           description: options?.objective ?? "Created from canvas",
         });
         const version = await workflowApi.saveVersion(wf.id, { nodes, edges });
-        const byok = getByokFields?.() ?? {};
+        const extras = getRunExtras?.() ?? {};
         const runData = await workflowApi.run(version.id, {
           ...options,
-          ...byok,
+          ...extras,
         });
         applyRunResult(runData);
         return runData;
@@ -274,7 +293,7 @@ export function useWorkflowRun({
         setIsBusy(false);
       }
     },
-    [workflowApi, eventsPort, applyRunResult, getByokFields],
+    [workflowApi, eventsPort, applyRunResult, getRunExtras],
   );
 
   const resume = useCallback(
@@ -284,10 +303,10 @@ export function useWorkflowRun({
       setLastError(null);
       setRunStatus("running");
       try {
-        const byok = getByokFields?.() ?? {};
+        const extras = getRunExtras?.() ?? {};
         const runData = await workflowApi.resume(pausedRunId, {
           ...options,
-          ...byok,
+          ...extras,
         });
         applyRunResult(runData);
         return runData;
@@ -307,7 +326,7 @@ export function useWorkflowRun({
         setIsBusy(false);
       }
     },
-    [pausedRunId, workflowApi, eventsPort, applyRunResult, getByokFields],
+    [pausedRunId, workflowApi, eventsPort, applyRunResult, getRunExtras],
   );
 
   const approvePlan = useCallback(
@@ -386,6 +405,8 @@ export function useWorkflowRun({
     currentPlan,
     planRevision,
     codeChangesSummary,
+    artifacts,
+    touchedFiles,
     successCriteria,
     llmUsage,
     guardrailMessage,

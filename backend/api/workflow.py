@@ -96,6 +96,8 @@ class RunRequest(BaseModel):
     byok_api_key: Optional[str] = None
     byok_model: Optional[str] = None
     byok_base_url: Optional[str] = None
+    # Soft USD spend cap for this run (None / 0 = unlimited)
+    cost_budget_usd: Optional[float] = None
 
 class ResumeRequest(BaseModel):
     state_updates: Optional[Dict[str, Any]] = None
@@ -105,6 +107,7 @@ class ResumeRequest(BaseModel):
     byok_api_key: Optional[str] = None
     byok_model: Optional[str] = None
     byok_base_url: Optional[str] = None
+    cost_budget_usd: Optional[float] = None
 
 @router.post("/{version_id}/run", response_model=WorkflowRunRead)
 async def run_workflow(
@@ -136,6 +139,10 @@ async def run_workflow(
         "byok_api_key": (request.byok_api_key or "").strip() or None,
         "byok_model": (request.byok_model or "").strip() or None,
         "byok_base_url": (request.byok_base_url or "").strip() or None,
+        "cost_budget_usd": request.cost_budget_usd if request.cost_budget_usd and request.cost_budget_usd > 0 else None,
+        "budget_exceeded": False,
+        "touched_files": [],
+        "artifacts": [],
     }
 
     # Delegate to runtime manager
@@ -219,6 +226,11 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
             state_updates["byok_model"] = request.byok_model.strip()
         if request.byok_base_url:
             state_updates["byok_base_url"] = request.byok_base_url.strip()
+
+    if request.cost_budget_usd is not None:
+        state_updates["cost_budget_usd"] = (
+            request.cost_budget_usd if request.cost_budget_usd > 0 else None
+        )
     
     # Update the LangGraph checkpoint state
     if state_updates:
@@ -234,6 +246,11 @@ async def resume_workflow(run_id: str, request: ResumeRequest, db: AsyncSession 
         "byok_api_key": byok_key or None,
         "byok_model": (request.byok_model or "").strip() or None,
         "byok_base_url": (request.byok_base_url or "").strip() or None,
+        "cost_budget_usd": (
+            request.cost_budget_usd
+            if request.cost_budget_usd and request.cost_budget_usd > 0
+            else None
+        ),
     }
     
     task = asyncio.create_task(

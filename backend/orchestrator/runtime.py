@@ -129,9 +129,18 @@ async def execute_workflow(
             state_values["pause_reason"] = "user_paused"
             run.state_json = _make_serializable(state_values)
         else:
+            from utils.budget import BudgetExceededError
+
             logger.error(f"Workflow execution failed: {e}", exc_info=True)
             run.status = "failed"
-            run.state_json = {"error": str(e)}
+            snapshot = compiled_graph.get_state(config)
+            state_values = dict(snapshot.values) if snapshot.values else {}
+            state_values["error"] = str(e)
+            if isinstance(e, BudgetExceededError) or "Spend budget exceeded" in str(e):
+                state_values["budget_exceeded"] = True
+                state_values["guardrail_message"] = str(e)
+                state_values["feedback"] = str(e)
+            run.state_json = _make_serializable(state_values)
             logger.critical(
                 "Workflow execution failed with exception",
                 extra={"run_id": run_id, "error": str(e)},

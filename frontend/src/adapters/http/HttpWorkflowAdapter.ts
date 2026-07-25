@@ -107,6 +107,7 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
         byok_api_key: options?.byokApiKey ?? null,
         byok_model: options?.byokModel ?? null,
         byok_base_url: options?.byokBaseUrl ?? null,
+        cost_budget_usd: options?.costBudgetUsd ?? null,
       }),
     });
     return parseJson<WorkflowRunRecord>(res);
@@ -127,6 +128,7 @@ export class HttpWorkflowAdapter implements WorkflowApiPort {
         byok_api_key: options?.byokApiKey ?? null,
         byok_model: options?.byokModel ?? null,
         byok_base_url: options?.byokBaseUrl ?? null,
+        cost_budget_usd: options?.costBudgetUsd ?? null,
       }),
     });
     return parseJson<WorkflowRunRecord>(res);
